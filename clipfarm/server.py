@@ -65,6 +65,7 @@ async function posted(btn,clip,platform){const url=btn.parentElement.querySelect
 async function stats(btn,post){const f=btn.closest('.stats');const v=n=>f.querySelector('[name='+n+']').value||0;
  if(!f.querySelector('[name=views]').value){alert('Enter at least the views');return}
  if(await api('/api/stats',{post_id:post,views:v('views'),likes:v('likes'),comments:v('comments'),shares:v('shares')}))location.reload()}
+async function setStatus(clip,status){if(await api('/api/status',{clip_id:clip,status}))location.reload()}
 function cp(btn,text){navigator.clipboard.writeText(text);btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1200)}
 """
 
@@ -79,11 +80,16 @@ def page(title: str, body: str, active: str) -> bytes:
 
 # ---------------------------------------------------------------- review
 
-def review_page(con, show_all: bool) -> bytes:
+def review_page(con, show_all: bool, auto: list[str] | None = None) -> bytes:
+    """auto = platforms the publisher posts to; the rest get copy + paste-link controls."""
+    auto = auto or []
     clips = con.execute("SELECT * FROM clips ORDER BY created DESC").fetchall()
     posts: dict[str, dict] = {}
     for p in con.execute("SELECT * FROM posts"):
         posts.setdefault(p["clip_id"], {})[p["platform"]] = p
+    errors: dict[tuple, str] = {}
+    for e in con.execute("SELECT clip_id, platform, error FROM publish_attempts ORDER BY at"):
+        errors[(e["clip_id"], e["platform"])] = e["error"]
     cards, hidden = [], 0
     for c in clips:
         d = Path(c["path"])
@@ -91,7 +97,8 @@ def review_page(con, show_all: bool) -> bytes:
         if not final.exists():
             continue
         done = posts.get(c["id"], {})
-        if not show_all and len(done) == len(tracker.PLATFORMS):
+        status = c["status"] or "new"
+        if not show_all and (len(done) == len(tracker.PLATFORMS) or status == "rejected"):
             hidden += 1
             continue
         try:
@@ -99,29 +106,53 @@ def review_page(con, show_all: bool) -> bytes:
             texts = pipeline._platform_text(meta)
         except Exception:
             texts = {}
+        cid = E(json.dumps(c["id"]))
         rows = []
         for plat in tracker.PLATFORMS:
             cap = texts.get(CAPTION_KEY[plat], "")
             cap_js = E(json.dumps(cap))
             copy = f'<button class="ghost" onclick="cp(this,{cap_js})">Copy</button>' if cap else ""
+            err = errors.get((c["id"], plat))
             if plat in done:
                 act = f'<span class="done">Posted · <a href="{E(done[plat]["url"])}" target="_blank" rel="noopener">link</a></span>'
+                copy = ""
+            elif plat in auto and status == "approved":
+                act = (f'<span class="done" title="{E(err or "")}">'
+                       f'{"Auto-post failed, retrying: " + E(err[:80]) if err else "Queued for auto-post"}</span>')
+                copy = ""
+            elif plat in auto:
+                act = '<span class="done">Approve to auto-post</span>'
+                copy = ""
             else:
                 act = (f'<span style="display:flex;gap:6px"><input placeholder="paste post link">'
-                       f'<button onclick="posted(this,{E(json.dumps(c["id"]))},\'{plat}\')">Posted</button></span>')
+                       f'<button onclick="posted(this,{cid},\'{plat}\')">Posted</button></span>')
             rows.append(f'<div class="row"><b>{LABELS[plat]}</b><div class="cap">{E(cap)}</div>'
                         f'<div style="display:flex;gap:6px;align-items:center">{copy}{act}</div></div>')
         media = "/media?clip=" + urllib.parse.quote(c["id"])
+        if status == "approved":
+            decide = (f'<span class="tag">approved</span>'
+                      f'<button class="ghost" onclick="setStatus({cid},\'new\')">Undo</button>')
+        elif status == "rejected":
+            decide = (f'<span class="tag">rejected</span>'
+                      f'<button class="ghost" onclick="setStatus({cid},\'new\')">Undo</button>')
+        else:
+            decide = (f'<button onclick="setStatus({cid},\'approved\')">Approve</button>'
+                      f'<button class="ghost" onclick="setStatus({cid},\'rejected\')">Reject</button>')
         cards.append(
             f'<section class="card clip"><video src="{media}" controls preload="metadata" playsinline></video>'
-            f'<div><div style="margin-bottom:6px"><b>{E(c["title"] or c["id"])}</b></div>'
+            f'<div><div style="display:flex;justify-content:space-between;gap:10px;align-items:start;margin-bottom:6px">'
+            f'<b>{E(c["title"] or c["id"])}</b><span style="display:flex;gap:6px;align-items:center">{decide}</span></div>'
             f'<div style="margin-bottom:8px"><span class="tag">{E(c["format"] or "-")}</span>'
             f'<span class="tag">hook: {E(c["hook_style"] or "-")}</span>'
             f'<span class="tag">{E(c["source"] or "")}</span></div>{"".join(rows)}</div></section>')
-    toggle = ('<a href="/?all=1">show posted clips too</a>' if not show_all else '<a href="/">hide fully posted clips</a>')
-    head = (f"<h1>Review &amp; post</h1><p class='sub'>Watch each clip, copy the caption, post it, "
-            f"then paste the post's link and press Posted. That link is how its views get tracked. "
-            f"{hidden} fully posted clip(s) hidden · {toggle}</p>")
+    toggle = ('<a href="/?all=1">show posted and rejected clips</a>' if not show_all else '<a href="/">hide them</a>')
+    names = [LABELS[p] for p in auto]
+    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1] if names else ""
+    auto_txt = (f"<b>Approve</b> a clip and it's posted to {joined} automatically. "
+                if auto else "")
+    head = (f"<h1>Review &amp; post</h1><p class='sub'>{auto_txt}For the other platforms, copy the caption, "
+            f"post it, then paste the post's link and press Posted, so its views get tracked. "
+            f"{hidden} clip(s) hidden · {toggle}</p>")
     if not cards:
         cards = ["<div class='card'>No finished clips yet. Run twitch.bat or daily.bat first.</div>"]
     return page("Review & post", head + "".join(cards), "review")
@@ -192,6 +223,15 @@ def dashboard_page(con, cfg) -> bytes:
                     f"<code>python -m clipfarm stats</code>.</p><div class='card' style='overflow-x:auto'>"
                     f"<table>{rows}</table></div>")
 
+    fails = con.execute("""SELECT a.*, c.title FROM publish_attempts a LEFT JOIN clips c ON c.id = a.clip_id
+                           WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.clip_id=a.clip_id AND p.platform=a.platform)
+                           ORDER BY a.at DESC LIMIT 10""").fetchall()
+    if fails:
+        rows = "".join(f"<tr><td>{LABELS.get(f['platform'], f['platform'])}</td><td>{E(f['title'] or f['clip_id'])}</td>"
+                       f"<td class='done'>{E(f['at'])}</td><td>{E((f['error'] or '')[:200])}</td></tr>" for f in fails)
+        body.append("<h2>Auto-post problems</h2><p class='sub'>A clip is retried up to 3 times per platform.</p>"
+                    f"<div class='card' style='overflow-x:auto'><table>{rows}</table></div>")
+
     from . import formats, writer
     fmts = [f for f in exp["formats"] if f in formats.ALL]
     styles = pipeline._arms(cfg, "hook_style", has_viewer_title=True)
@@ -226,6 +266,16 @@ def dashboard_page(con, cfg) -> bytes:
 
 # ---------------------------------------------------------------- server
 
+def _auto_platforms(cfg) -> list[str]:
+    """Platforms the publisher is set up for (config + credentials present)."""
+    from . import publish
+    try:
+        clients = publish.Clients(cfg, pipeline.ROOT)
+        return [p for p in cfg["publish"]["platforms"] if p in publish.AUTO and not clients.ready(p)]
+    except Exception:
+        return []
+
+
 def make_handler(cfg):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -243,7 +293,7 @@ def make_handler(cfg):
             q = urllib.parse.parse_qs(u.query)
             with pipeline.db() as con:
                 if u.path == "/":
-                    return self._send(200, review_page(con, bool(q.get("all"))))
+                    return self._send(200, review_page(con, bool(q.get("all")), _auto_platforms(cfg)))
                 if u.path == "/dashboard":
                     return self._send(200, dashboard_page(con, cfg))
                 if u.path == "/media":
@@ -291,6 +341,8 @@ def make_handler(cfg):
                         if not str(data.get("url", "")).startswith("http"):
                             raise ValueError("That doesn't look like a link")
                         tracker.record_post(con, data["clip_id"], data["platform"], data["url"])
+                    elif self.path == "/api/status":
+                        tracker.set_status(con, data["clip_id"], data["status"])
                     elif self.path == "/api/stats":
                         tracker.add_stats(con, int(data["post_id"]), int(data["views"]), int(data.get("likes") or 0),
                                           int(data.get("comments") or 0), int(data.get("shares") or 0))

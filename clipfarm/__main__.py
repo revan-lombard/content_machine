@@ -66,8 +66,36 @@ def main() -> None:
     p.add_argument("platform", choices=["youtube", "tiktok", "instagram", "facebook", "x"])
     p.add_argument("url")
 
+    p = sub.add_parser("connect", help="one-time sign-in for auto-posting: youtube or meta")
+    p.add_argument("platform", choices=["youtube", "meta"])
+    p.add_argument("--token", help="meta: a user access token from Graph API Explorer")
+    p.add_argument("--page", help="meta: which Facebook Page, if you manage several")
+
+    p = sub.add_parser("approve", help="approve clips for auto-posting (the review page does this too)")
+    p.add_argument("clip_ids", nargs="+")
+    p.add_argument("--reject", action="store_true")
+
+    p = sub.add_parser("publish", help="post approved clips to YouTube / Instagram / Facebook")
+    p.add_argument("--platform", action="append", choices=["youtube", "instagram", "facebook"])
+    p.add_argument("--dry-run", action="store_true", help="show what would be posted")
+    p.add_argument("--watch", action="store_true", help="keep running, checking every 10 minutes")
+
     a = ap.parse_args()
     cfg = config.load(a.config)
+
+    if a.cmd == "connect":
+        _connect(cfg, a)
+        return
+    if a.cmd == "approve":
+        from . import tracker
+        with pipeline.db() as con:
+            for cid in a.clip_ids:
+                tracker.set_status(con, cid, "rejected" if a.reject else "approved")
+        print(f"{len(a.clip_ids)} clip(s) {'rejected' if a.reject else 'approved'}")
+        return
+    if a.cmd == "publish":
+        _publish(cfg, a)
+        return
 
     if a.cmd == "review":
         from . import server
@@ -162,12 +190,57 @@ def _twitch(cfg: dict, a) -> None:
         print(f"Review: {post / 'review.html'}\n")
 
 
+def _connect(cfg: dict, a) -> None:
+    from . import meta_api, publish, youtube_api
+    sec = publish._secrets()
+    tokens = publish.token_dir(config.ROOT)
+    if a.platform == "youtube":
+        y = sec.get("youtube_oauth") or {}
+        if not (y.get("client_id") and y.get("client_secret")):
+            raise SystemExit("Add youtube_oauth client_id and client_secret to secrets.yaml first "
+                             "(steps in secrets.example.yaml)")
+        youtube_api.connect(y["client_id"], y["client_secret"], tokens / "youtube.json")
+    else:
+        m = sec.get("meta") or {}
+        if not (m.get("app_id") and m.get("app_secret")):
+            raise SystemExit("Add meta app_id and app_secret to secrets.yaml first (steps in secrets.example.yaml)")
+        if not a.token:
+            raise SystemExit("Pass --token: in Graph API Explorer pick your app, add these permissions: "
+                             + ", ".join(meta_api.PERMISSIONS) + ", then Generate Access Token")
+        meta_api.connect(m["app_id"], m["app_secret"], a.token,
+                         cfg["publish"].get("meta_api_version", "v23.0"), tokens / "meta.json", a.page)
+
+
+def _publish(cfg: dict, a) -> None:
+    import time
+    from . import publish
+    while True:
+        with pipeline.db() as con:
+            for r in publish.run(cfg, con, config.ROOT, platforms=a.platform, dry_run=a.dry_run):
+                p = r["platform"].ljust(10)
+                if "url" in r:
+                    print(f"  {p} posted {r['clip']} -> {r['url']}")
+                elif r.get("would_post"):
+                    print(f"  {p} would post {r['clip']}")
+                elif "error" in r:
+                    print(f"  {p} FAILED {r['clip']}: {r['error']}")
+                else:
+                    print(f"  {p} {('[' + r['clip'] + '] ') if r.get('clip') else ''}{r['skipped']}")
+        if not a.watch:
+            return
+        time.sleep(600)
+
+
 def _stats(cfg: dict) -> None:
     from . import formats, stats, tracker, writer
     exp = cfg["experiments"]
     with pipeline.db() as con:
         n = stats.fetch_youtube(con)
         print(f"YouTube: updated {n} post(s)")
+        from . import publish
+        n = publish.fetch_instagram_stats(cfg, con, config.ROOT)
+        if n:
+            print(f"Instagram: updated {n} post(s)")
         todo = tracker.todo(con, exp.get("score_hours", 48))
         if todo:
             print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")

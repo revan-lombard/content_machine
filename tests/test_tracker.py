@@ -217,6 +217,9 @@ def test_twitch_with_experiments(video, tmp_path, monkeypatch):
         assert con.execute("SELECT views FROM stats").fetchone()[0] == 4321
         with pytest.raises(urllib.error.HTTPError):
             post("/api/post", {"clip_id": metas[0]["clip_id"], "platform": "tiktok", "url": "not a link"})
+        post("/api/status", {"clip_id": metas[0]["clip_id"], "status": "approved"})
+        assert con.execute("SELECT status FROM clips WHERE id=?", (metas[0]["clip_id"],)).fetchone()[0] == "approved"
+        assert "approved" in urllib.request.urlopen(base + "/").read().decode()
         dash = urllib.request.urlopen(base + "/dashboard").read().decode()
         assert "Formats" in dash and "Hook styles" in dash and "Warming up" in dash
     finally:

@@ -98,4 +98,18 @@ experiments:
   explore: 0.2
   score_hours: 48   # a post is scored on its views this many hours after posting
 
+# Auto-posting of clips you APPROVED on the review page. TikTok and X stay manual.
+publish:
+  platforms: [youtube, instagram, facebook]
+  min_gap_minutes: 90       # per platform: space posts out instead of dumping them at once
+  hours: [9, 23]            # only post between these local hours
+  meta_api_version: v23.0   # Meta Graph API version; bump when Meta retires it
+  youtube:
+    daily_max: 5            # the API's free daily quota allows only a handful of uploads
+    privacy: public         # forced to private by YouTube until your API project passes its audit
+  instagram:
+    daily_max: 10
+  facebook:
+    daily_max: 10           # Meta's hard limit is 30 API Reels per Page per 24h
+
 hashtags: ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"]

@@ -22,6 +22,7 @@ sources:
       hashtags: ["#gta6", "#gta", "#example"]
       min_length: 10               # seconds
       max_length: 60
+      platforms: [youtube, tiktok, instagram]   # where the campaign lets you post (omit = anywhere)
     # Where the face cam sits in the stream, as fractions of the frame: [x, y, width, height].
     # Set it to get the split layout (face cam on top, gameplay below). Find it with:
     #   python -m clipfarm facecam example --vod <id>    (saves a frame with a grid on it)

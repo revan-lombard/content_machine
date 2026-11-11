@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS clips (
 CREATE TABLE IF NOT EXISTS posts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id TEXT REFERENCES clips(id), platform TEXT,
   url TEXT, posted_at TEXT, UNIQUE(clip_id, platform));
+CREATE TABLE IF NOT EXISTS publish_attempts (
+  clip_id TEXT, platform TEXT, at TEXT, error TEXT);
 CREATE TABLE IF NOT EXISTS stats (
   post_id INTEGER REFERENCES posts(id), fetched_at TEXT, views INTEGER, likes INTEGER,
   comments INTEGER, shares INTEGER, origin TEXT);
@@ -47,7 +49,22 @@ def connect(path: str | Path) -> sqlite3.Connection:
     con = sqlite3.connect(str(path))
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    # columns added after the first release
+    cols = {r[1] for r in con.execute("PRAGMA table_info(clips)")}
+    if "status" not in cols:
+        con.execute("ALTER TABLE clips ADD COLUMN status TEXT DEFAULT 'new'")  # new | approved | rejected
+    if "external_id" not in {r[1] for r in con.execute("PRAGMA table_info(posts)")}:
+        con.execute("ALTER TABLE posts ADD COLUMN external_id TEXT")
+    con.commit()
     return con
+
+
+def set_status(con, clip_id: str, status: str) -> None:
+    if status not in ("new", "approved", "rejected"):
+        raise ValueError("status must be new, approved or rejected")
+    if not con.execute("UPDATE clips SET status=? WHERE id=?", (status, clip_id)).rowcount:
+        raise ValueError(f"unknown clip {clip_id}")
+    con.commit()
 
 
 # ---------------------------------------------------------------- logging
@@ -62,14 +79,16 @@ def register_clip(con, clip_id: str, *, source: str = "", fmt: str = "", hook_st
     con.commit()
 
 
-def record_post(con, clip_id: str, platform: str, url: str, posted_at: str | None = None) -> int:
+def record_post(con, clip_id: str, platform: str, url: str, posted_at: str | None = None,
+                external_id: str | None = None) -> int:
     if platform not in PLATFORMS:
         raise ValueError(f"platform must be one of {PLATFORMS}")
     if not con.execute("SELECT 1 FROM clips WHERE id=?", (clip_id,)).fetchone():
         raise ValueError(f"unknown clip {clip_id}")
-    con.execute("""INSERT INTO posts (clip_id, platform, url, posted_at) VALUES (?,?,?,?)
-                   ON CONFLICT(clip_id, platform) DO UPDATE SET url=excluded.url""",
-                (clip_id, platform, url.strip(), posted_at or now_iso()))
+    con.execute("""INSERT INTO posts (clip_id, platform, url, posted_at, external_id) VALUES (?,?,?,?,?)
+                   ON CONFLICT(clip_id, platform) DO UPDATE SET url=excluded.url,
+                   external_id=COALESCE(excluded.external_id, posts.external_id)""",
+                (clip_id, platform, url.strip(), posted_at or now_iso(), external_id))
     con.commit()
     return con.execute("SELECT id FROM posts WHERE clip_id=? AND platform=?", (clip_id, platform)).fetchone()[0]
 

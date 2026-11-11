@@ -126,6 +126,62 @@ In Windows **Task Scheduler**, go to **Create Basic Task → Daily**, choose
 **Start a program**, and point it at `twitch.bat` in this folder. Clips will be waiting
 for you to review.
 
+## Auto-posting
+
+**Approve** a clip on the review page and it gets posted to **YouTube Shorts, Instagram
+Reels and Facebook Reels** automatically, with the captions, credit and hashtags already
+written. **TikTok and X stay manual** (copy the caption, post, paste the link back), for
+these reasons:
+
+| Platform | Status |
+|---|---|
+| YouTube | Works. **Uploads stay private until Google approves an audit of your API project.** Apply early: Google Cloud Console → YouTube Data API → the "YouTube API Services audit and quota extension" form |
+| Instagram | Works. Needs an Instagram **Business or Creator** account linked to a **Facebook Page** |
+| Facebook | Works. Posts Reels to that Page. Meta caps it at 30 API Reels per Page per day |
+| TikTok | Manual. Until TikTok approves an app, API posts can only be private and only to private accounts |
+| X | Manual. Posting through its API is a paid tier |
+
+### One-time setup
+
+1. **YouTube:**
+   - Follow the `youtube_oauth` steps in `secrets.example.yaml` and fill them into `secrets.yaml`.
+   - Run `python -m clipfarm connect youtube` and sign in in the browser that opens.
+2. **Instagram and Facebook:**
+   - Create a Meta app and put its ID and secret in `secrets.yaml` (steps in `secrets.example.yaml`).
+   - In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), select your app and add
+     these permissions: `pages_show_list, pages_read_engagement, pages_manage_posts,
+     instagram_basic, instagram_content_publish, instagram_manage_insights, business_management`.
+   - Click **Generate Access Token**, then run:
+```
+python -m clipfarm connect meta --token PASTE_TOKEN_HERE
+```
+   It swaps that token for a permanent Page token and finds your linked Instagram account.
+3. **Campaign rules:** if a campaign only allows certain platforms, set
+   `platforms: [...]` under the streamer's `rules` in `sources.yaml`. The publisher
+   respects it.
+
+### Every day
+
+```
+publish.bat          # keeps running: posts approved clips, spaced out, until you close it
+```
+
+Or run `python -m clipfarm publish` hourly from Task Scheduler. Use
+`python -m clipfarm publish --dry-run` to see what would go out without posting.
+
+### Rules it follows
+
+- **Approval:** only clips you approved get posted, oldest first.
+- **Permission:** the streamer must still be approved in `sources.yaml` at posting time.
+  If you remove a streamer, their queued clips stop.
+- **Pacing:** each platform gets at most one post per `min_gap_minutes` (90), only between
+  `hours` (09:00–23:00), and up to its `daily_max` per 24h.
+- **Failures:** a post that fails is retried on later runs, up to 3 times. Errors show on
+  the review page and the Performance tab.
+- **Tracking:** every post is logged with its link automatically, so its views are tracked
+  with no typing. YouTube and Instagram view counts are also fetched automatically by
+  `python -m clipfarm stats`.
+
 ## Clipping your own gameplay
 
 You play with OBS recording and press a hotkey after anything good happens.
@@ -218,6 +274,9 @@ python -m clipfarm facecam NAME               frame + grid to find the face cam 
 python -m clipfarm review                     review/post page + performance dashboard
 python -m clipfarm stats                      fetch YouTube stats, print the format leaderboard
 python -m clipfarm post CLIP_ID PLATFORM URL  log a post without the web page
+python -m clipfarm connect youtube|meta       one-time sign-in for auto-posting
+python -m clipfarm approve CLIP_ID... [--reject]
+python -m clipfarm publish [--dry-run] [--watch] [--platform youtube]
 ```
 
 `SESSION` is a `sessions\*.beats.json` file from the logger, or a video file.
