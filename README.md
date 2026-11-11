@@ -1,5 +1,71 @@
 # GTA 6 Clip Farm
 
+There are two ways to feed it:
+
+- **Twitch streamers you have permission to clip.** This is the main mode. It finds the
+  best moments of their latest stream from viewer clips and chat, downloads only those
+  parts, and makes split-screen clips that credit the streamer. See
+  [Clipping Twitch streamers](#clipping-twitch-streamers).
+- **Your own gameplay.** This is the original mode, described below.
+
+## Clipping Twitch streamers
+
+### 1. Approved sources only
+
+`sources.yaml` lists the streamers you're allowed to clip, with proof: a campaign link,
+a screenshot of a DM, or a link to where they publicly allow clipping. **Anything not
+listed, or listed without proof, is refused.** Reposting streams without permission
+gets accounts struck and banned, so this check protects your accounts. Copy the
+campaign's rules (credit, hashtags, clip length) into the entry.
+
+```
+python -m clipfarm sources        # shows which entries are approved, and what's missing
+```
+
+### 2. One-time setup
+
+1. Twitch API keys (free). Create an app at https://dev.twitch.tv/console/apps,
+   copy `secrets.example.yaml` to `secrets.yaml`, and paste in the Client ID and Secret.
+2. Optional: chat replay. Chat spikes catch moments viewers didn't clip. Download
+   [TwitchDownloaderCLI](https://github.com/lay295/TwitchDownloader/releases) and put
+   `TwitchDownloaderCLI.exe` in a `tools\` folder here. Without it, only viewer clips are used.
+3. Optional: face cam split layout. Run `python -m clipfarm facecam <name>`. It saves a
+   frame from their stream with a 10% grid on it. Read off the face cam's box and set
+   `facecam: [x, y, w, h]` in `sources.yaml`. Without this, clips use the blurred-background layout.
+
+### 3. Daily
+
+```
+twitch.bat                     # latest VOD of every approved streamer
+twitch.bat name --vod 123456   # a specific VOD
+```
+
+For each VOD it:
+
+1. Gets the viewer clips through Twitch's API. Many people clipping the same moment is
+   the strongest signal there is.
+2. Reads the chat replay, if you have it, for message bursts and laugh/hype emotes.
+3. Ranks the moments and downloads only those parts of the VOD (seconds, not hours).
+4. Makes payoff-first clips with the streamer credited on screen and in every caption,
+   plus the campaign's hashtags. A viewer's clip title becomes the hook text when it's good.
+5. Writes everything to `out\<streamer>-<vod>\post\review.html`.
+
+Each clip's `script.yaml` records where it came from: VOD link, timestamp and permission type.
+
+### Running it on an AMD GPU (RX 580)
+
+- **Video encoding:** `video: encoder: h264_amf` in `config.yaml` uses the card's encoder.
+  If it fails, it switches to the CPU automatically.
+- **Captions on the GPU:** download a whisper.cpp release with Vulkan support for Windows,
+  plus a model such as `ggml-small.en.bin`. Then set `captions: engine: whisper-cpp` and
+  the two paths `whisper_cpp_exe` and `whisper_cpp_model`.
+  Until then, captions run on the CPU, which is fine for short clips.
+- **Local AI writing:** [LM Studio](https://lmstudio.ai) runs on AMD cards through Vulkan.
+  Load an 8B instruct model, start its local server, and set
+  `llm: provider: lmstudio`, `url: http://localhost:1234`.
+
+## Clipping your own gameplay
+
 You play with OBS recording and press a hotkey after anything good happens.
 Then one command turns the recording into:
 
@@ -11,7 +77,7 @@ ready-to-paste captions for YouTube, TikTok, Instagram, Facebook and X.
 
 Every tool it uses is free: ffmpeg, OBS, faster-whisper, and optionally Ollama.
 
-## The structure
+### The structure
 
 | Beat | Time | Hotkey that supplies the footage | Default on-screen line |
 |---|---|---|---|
@@ -31,7 +97,7 @@ the press, plus 1.5s after it.
 A beat you didn't tag is skipped and the Short comes out shorter. Only F9 (result)
 is required. Beat lengths, hotkeys and everything else are in `config.yaml`.
 
-## Setup (Windows, once)
+### Setup (Windows, once)
 
 1. Install [Python 3.10+](https://www.python.org/downloads/) (tick "Add to PATH") and [OBS](https://obsproject.com).
 2. Double-click `setup.bat`. It installs ffmpeg if needed and the Python packages.
@@ -45,7 +111,7 @@ is required. Beat lengths, hotkeys and everything else are in `config.yaml`.
 6. Optional, for better writing: install [Ollama](https://ollama.com), run `ollama pull llama3.1`,
    and set `llm: provider: ollama` in `config.yaml`.
 
-## Daily loop
+### Daily loop
 
 ```
 log.bat "escape 5 stars with no car"     # 1. start this, then start recording in OBS and play
@@ -83,6 +149,10 @@ python -m clipfarm challenge SESSION          rough cut of the 60s Short only
 python -m clipfarm moments SESSION [--no-auto]
 python -m clipfarm finish CLIP_DIR... [--vo file] [--no-captions]
 python -m clipfarm kit out\SESSION
+python -m clipfarm sources                    which streamers are approved
+python -m clipfarm twitch NAME [--vod ID] [--chat FILE] [--max N]
+python -m clipfarm twitch --all               latest VOD of every approved streamer
+python -m clipfarm facecam NAME               frame + grid to find the face cam box
 ```
 
 `SESSION` is a `sessions\*.beats.json` file from the logger, or a video file.

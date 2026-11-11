@@ -43,6 +43,8 @@ video:
   crf: 20
   preset: veryfast
   punch_in: true    # quick zoom punch at the start of the obstacle and result beats
+  encoder: h264_amf # h264_amf = your AMD card's encoder (fast) | libx264 = CPU. Falls back to CPU automatically
+  facecam_height: 0.38  # streamer split layout: share of the screen the face cam gets
 
 text:
   font: Arial Black
@@ -51,7 +53,12 @@ text:
 
 captions:
   enabled: true
+  # whisper-cpp runs on AMD GPUs (RX 580) through Vulkan; faster-whisper runs on the CPU there.
+  # whisper.cpp setup: see README "Captions on an AMD GPU". Leave as faster-whisper until then.
+  engine: faster-whisper
   model: small      # faster-whisper model: tiny | base | small | medium (bigger = better, slower)
+  whisper_cpp_exe: ""     # e.g. C:/tools/whisper/whisper-cli.exe
+  whisper_cpp_model: ""   # e.g. C:/tools/whisper/ggml-small.en.bin
   words_per_line: 3
 
 audio:
@@ -67,7 +74,10 @@ moments:
   auto: true        # also find loud moments you didn't tag
 
 # Writes hooks, titles and descriptions. "none" uses built-in templates (free, offline).
-# "ollama" uses a free local model: install https://ollama.com, then `ollama pull llama3.1`.
+# "lmstudio": free local AI that runs on AMD cards (RX 580). Install https://lmstudio.ai, download
+#   an 8B instruct model (e.g. Llama 3.1 8B Instruct Q4), start its local server, then set:
+#     provider: lmstudio / model: <the model name LM Studio shows> / url: http://localhost:1234
+# "ollama": free local AI for newer GPUs (https://ollama.com), url http://localhost:11434
 llm:
   provider: none
   model: llama3.1

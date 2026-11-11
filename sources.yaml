@@ -1,0 +1,28 @@
+# Channels the clip farm is allowed to process. Anything not listed here (or listed
+# without permission proof) is refused - that is what keeps your accounts safe.
+#
+# permission.type:
+#   campaign - you joined a paid clipping campaign for them (proof: the campaign link)
+#   written  - they or their team said yes to you (proof: screenshot path or message link)
+#   public   - they publicly say anyone may clip them (proof: link to where they say it)
+#
+# Check your list with:  python -m clipfarm sources
+
+sources:
+  - name: example
+    enabled: false                 # set to true once the details below are real
+    platform: twitch
+    login: example_streamer        # from twitch.tv/<login>
+    permission:
+      type: campaign
+      proof: https://contentrewards.com/...   # the campaign page
+      granted: 2026-11-12
+    rules:                         # copy these from the campaign brief
+      credit: "@example_streamer"  # shown on every clip
+      hashtags: ["#gta6", "#gta", "#example"]
+      min_length: 10               # seconds
+      max_length: 60
+    # Where the face cam sits in the stream, as fractions of the frame: [x, y, width, height].
+    # Set it to get the split layout (face cam on top, gameplay below). Find it with:
+    #   python -m clipfarm facecam example --vod <id>    (saves a frame with a grid on it)
+    facecam: null

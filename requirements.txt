@@ -4,3 +4,4 @@ faster-whisper>=1.0      # captions (runs locally, free)
 obsws-python>=1.7        # exact tag timing from OBS
 keyboard>=0.13           # global hotkeys while the game has focus
 pytest>=8.0              # only for running the tests
+yt-dlp>=2025.1.1         # downloads only the needed parts of Twitch VODs

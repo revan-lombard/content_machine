@@ -179,25 +179,100 @@ def build_moments(cfg: dict, s: dict) -> list[Path]:
     print(f"Moment clips: {len(picked)}")
     for i, (p, why) in enumerate(picked, 1):
         clip_dir = Path(s["out"]) / "moments" / f"{i:02d}"
-        clip_dir.mkdir(parents=True, exist_ok=True)
-        hf = float(m["hook_flash"])
-        f_start = max(0.0, p - hf / 2)
-        main_end = min(total, p + 2.0)
-        main_start = max(0.0, main_end - m["length"])
-        flash, main = clip_dir / "p0.mp4", clip_dir / "p1.mp4"
-        render.segment(cfg, s["recording"], f_start, hf, flash, punch=True)
-        render.segment(cfg, s["recording"], main_start, main_end - main_start, main)
-        render.concat([flash, main], clip_dir / "rough.mp4")
-        flash.unlink()
-        main.unlink()
+        render_moment(cfg, s["recording"], p, total, clip_dir)
         text = writer.moment_text(cfg, s.get("challenge", ""), i)
         meta = {"kind": "moment", "found_by": why, "source_at": round(p, 2),
                 "title": text["title"], "description": text["description"], "hashtags": cfg["hashtags"],
-                "beats": [{"key": "hook", "start": 0.0, "end": round(hf + 2.0, 2), "text": text["hook"]}]}
+                "beats": [{"key": "hook", "start": 0.0, "end": round(float(m["hook_flash"]) + 2.0, 2),
+                           "text": text["hook"]}]}
         _save_script(clip_dir, meta)
         print(f"  {i:02d}  at {p:7.1f}s  ({why})  -> {clip_dir}")
         out.append(clip_dir)
     return out
+
+
+def render_moment(cfg: dict, src: str | Path, peak: float, total: float, clip_dir: Path,
+                  length: float | None = None, facecam: list[float] | None = None) -> None:
+    """Payoff flash (hook_flash seconds around the peak), then the build-up into the payoff."""
+    m = cfg["moments"]
+    clip_dir.mkdir(parents=True, exist_ok=True)
+    hf = float(m["hook_flash"])
+    f_start = max(0.0, peak - hf / 2)
+    main_end = min(total, peak + 2.0)
+    main_start = max(0.0, main_end - float(length or m["length"]))
+    flash, main = clip_dir / "p0.mp4", clip_dir / "p1.mp4"
+    render.segment(cfg, str(src), f_start, hf, flash, punch=True, facecam=facecam)
+    render.segment(cfg, str(src), main_start, main_end - main_start, main, facecam=facecam)
+    render.concat([flash, main], clip_dir / "rough.mp4")
+    flash.unlink()
+    main.unlink()
+
+
+# ---------------------------------------------------------------- Twitch
+
+def build_twitch(cfg: dict, src: dict, vod_id: str | None = None, chat_file: str | None = None,
+                 max_n: int | None = None, helix=None) -> tuple[Path, list[Path]]:
+    """Best moments of an approved streamer's VOD -> moment clips with credit + campaign hashtags."""
+    from . import twitch
+    m = cfg["moments"]
+    rules = src.get("rules") or {}
+    h = helix or twitch.Helix()
+    uid = h.user_id(src["login"])
+    if vod_id:
+        vod = h.vod(vod_id)
+    else:
+        vods = h.vods(uid, 1)
+        if not vods:
+            raise SystemExit(f"{src['login']} has no saved VODs (VODs may be turned off on the channel)")
+        vod = vods[0]
+    vod_len = twitch.parse_duration(vod["duration"])
+    session_out = ROOT / "out" / f"{src['name']}-{vod['id']}"
+    session_out.mkdir(parents=True, exist_ok=True)
+    print(f"{src['name']}: VOD {vod['id']} \"{vod.get('title', '')}\" ({vod['duration']})")
+
+    clips = h.clips(uid, vod["created_at"], twitch.vod_end_iso(vod))
+    clip_ms = twitch.moments_from_clips(clips, vod["id"])
+    print(f"  viewer clips: {len(clips)} -> {len(clip_ms)} distinct moments")
+    chat_path = chat_file or twitch.download_chat(vod["id"], session_out / "chat.json")
+    chat_ms = twitch.moments_from_chat(twitch.load_chat(chat_path)) if chat_path else []
+    print(f"  chat spikes: {len(chat_ms)}" + ("" if chat_path else " (no chat replay - install TwitchDownloaderCLI)"))
+    picked = twitch.combine(clip_ms, chat_ms, m["min_gap"], max_n or m["max"])
+    if not picked:
+        raise SystemExit("  no moments found: nobody clipped this VOD and there's no chat replay")
+
+    length = float(m["length"])
+    length = max(float(rules.get("min_length", 0)) - float(m["hook_flash"]), length)
+    length = min(float(rules.get("max_length", 600)) - float(m["hook_flash"]), length)
+    credit = rules.get("credit") or f"@{src['login']}"
+    tags = rules.get("hashtags") or cfg["hashtags"]
+    out = []
+    for i, mo in enumerate(picked, 1):
+        sec_start = max(0.0, mo.peak + 2.0 - length - 3.0)
+        sec_end = min(vod_len, mo.peak + 5.0) if vod_len else mo.peak + 5.0
+        piece = session_out / "sources" / f"{i:02d}.mp4"
+        piece.parent.mkdir(exist_ok=True)
+        print(f"  {i:02d}  {mo.peak / 60:6.1f} min  score {mo.score:4.1f}  ({'; '.join(mo.reasons)})")
+        try:
+            twitch.download_section(vod["id"], sec_start, sec_end, piece)
+        except RuntimeError as e:
+            print(f"      skipped: {e}")
+            continue
+        clip_dir = session_out / "moments" / f"{i:02d}"
+        render_moment(cfg, piece, mo.peak - sec_start, ff.duration(piece), clip_dir,
+                      length=length, facecam=src.get("facecam"))
+        titles = [t for t in mo.clip_titles if t.strip() and t.strip() != vod.get("title", "").strip()]
+        text = writer.moment_text(cfg, vod.get("title", ""), i, context=titles, streamer=src["login"])
+        meta = {"kind": "moment", "found_by": "; ".join(mo.reasons), "source_at": round(mo.peak, 2),
+                "source": {"platform": "twitch", "login": src["login"], "vod": vod["id"],
+                           "url": f"https://www.twitch.tv/videos/{vod['id']}?t={int(mo.peak // 60)}m{int(mo.peak % 60)}s",
+                           "permission": (src.get("permission") or {}).get("type")},
+                "credit": credit, "layout": "split" if src.get("facecam") else "single",
+                "title": text["title"], "description": text["description"], "hashtags": tags,
+                "beats": [{"key": "hook", "start": 0.0, "end": round(float(m["hook_flash"]) + 2.0, 2),
+                           "text": text["hook"]}]}
+        _save_script(clip_dir, meta)
+        out.append(clip_dir)
+    return session_out, out
 
 
 # ---------------------------------------------------------------- finish
@@ -211,13 +286,15 @@ def finish(cfg: dict, clip_dir: Path, vo: str | None = None, use_captions: bool 
     if use_captions if use_captions is not None else cfg["captions"]["enabled"]:
         src = vo_path or clip_dir / "rough.mp4"
         cache = clip_dir / ("words_vo.json" if vo_path else "words.json")
-        words = captions.transcribe(src, cfg["captions"]["model"], cache)
+        words = captions.transcribe(src, cfg["captions"]["model"], cache, cfg)
     beats = []
     for b in meta["beats"]:
         hold = TEXT_SECS.get(b["key"]) if meta["kind"] == "challenge" else None
         end = min(b["end"], b["start"] + hold) if hold else b["end"]
         beats.append({**b, "end": end})
-    captions.write_ass(cfg, clip_dir / "overlay.ass", beats, words)
+    captions.write_ass(cfg, clip_dir / "overlay.ass", beats, words,
+                       credit=meta.get("credit", ""), duration=ff.duration(clip_dir / "rough.mp4"),
+                       split=meta.get("layout") == "split")
     sfx = []
     for b in meta["beats"]:
         p = _sfx(b["key"])
@@ -237,13 +314,16 @@ def _platform_text(meta: dict) -> dict:
     title = meta["title"].strip()
     desc = meta.get("description", "").strip()
     yt_tags = tags if "#shorts" in [t.lower() for t in tags] else tags + ["#shorts"]
+    credit = meta.get("credit", "").strip()
+    cr = f"\n\nClip from {credit}" if credit else ""
+    crs = f" | {credit}" if credit else ""
     return {
-        "youtube_title": title[:100],
-        "youtube_description": f"{desc}\n\n{' '.join(yt_tags)}",
-        "tiktok": f"{title} {' '.join(tags[:5])}"[:2200],
-        "instagram": f"{title}\n\n{desc}\n\n{' '.join(tags)}",
-        "facebook": f"{title}\n\n{desc}",
-        "x": f"{title} {' '.join(tags[:2])}"[:280],
+        "youtube_title": f"{title[:100 - len(crs)]}{crs}" if credit else title[:100],
+        "youtube_description": f"{desc}{cr}\n\n{' '.join(yt_tags)}",
+        "tiktok": f"{title}{crs} {' '.join(tags[:5])}"[:2200],
+        "instagram": f"{title}\n\n{desc}{cr}\n\n{' '.join(tags)}",
+        "facebook": f"{title}\n\n{desc}{cr}",
+        "x": f"{title}{crs} {' '.join(tags[:2])}"[:280],
     }
 
 

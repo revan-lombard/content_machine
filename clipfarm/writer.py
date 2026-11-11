@@ -1,7 +1,8 @@
 """Writes the on-screen beat lines, titles and descriptions.
 
 provider "none": built-in templates (free, offline, always works).
-provider "ollama": a free local model via https://ollama.com (better, varied writing).
+provider "lmstudio": a free local model in LM Studio (works on AMD cards like the RX 580).
+provider "ollama": a free local model via https://ollama.com (newer GPUs).
 """
 from __future__ import annotations
 
@@ -36,6 +37,32 @@ def _ollama(cfg: dict, prompt: str) -> dict | None:
         return None
 
 
+def _openai_compatible(cfg: dict, prompt: str) -> dict | None:
+    """LM Studio (and other OpenAI-compatible local servers). LM Studio runs on AMD GPUs via Vulkan."""
+    llm = cfg["llm"]
+    body = json.dumps({"model": llm["model"], "temperature": 0.9,
+                       "messages": [{"role": "system", "content": "Reply with one JSON object only."},
+                                    {"role": "user", "content": prompt}]}).encode()
+    req = urllib.request.Request(f"{llm['url'].rstrip('/')}/v1/chat/completions", data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=180) as r:
+            text = json.loads(r.read())["choices"][0]["message"]["content"]
+        return json.loads(text[text.index("{"): text.rindex("}") + 1])
+    except Exception as e:
+        print(f"  local AI unavailable ({e}); using templates")
+        return None
+
+
+def _ask(cfg: dict, prompt: str) -> dict | None:
+    provider = cfg["llm"]["provider"]
+    if provider == "ollama":
+        return _ollama(cfg, prompt)
+    if provider in ("lmstudio", "openai-compatible"):
+        return _openai_compatible(cfg, prompt)
+    return None
+
+
 def _clean(d: dict, keys: list[str]) -> dict:
     return {k: str(d.get(k, "")).strip() for k in keys}
 
@@ -56,8 +83,8 @@ def challenge_text(cfg: dict, challenge: str) -> dict:
         "description": f"Trying to {c} in GTA 6 with no cheats. Did it work?",
     }
     keys = list(base)
-    if cfg["llm"]["provider"] == "ollama":
-        out = _ollama(cfg, f"{STRUCTURE}\n\nChallenge: {c}\n\nReturn JSON with keys: "
+    if cfg["llm"]["provider"] != "none":
+        out = _ask(cfg, f"{STRUCTURE}\n\nChallenge: {c}\n\nReturn JSON with keys: "
                            f"{', '.join(keys)}. 'title' max 70 characters and makes people click. "
                            "'description' is 1-2 sentences.")
         if out:
@@ -74,19 +101,27 @@ MOMENT_HOOKS = [
 ]
 
 
-def moment_text(cfg: dict, challenge: str, index: int, transcript: str = "") -> dict:
-    """Hook + title for a short moment clip."""
-    rng = random.Random(f"{challenge}-{index}")
+def moment_text(cfg: dict, challenge: str, index: int, transcript: str = "",
+                context: list[str] | None = None, streamer: str = "") -> dict:
+    """Hook + title for a short moment clip. `context` = titles viewers gave their Twitch clips."""
+    rng = random.Random(f"{challenge}-{index}-{streamer}")
     hook = rng.choice(MOMENT_HOOKS)
-    base = {"hook": hook, "title": f"{hook.rstrip('.')} | GTA 6",
+    # a viewer's clip title is often the best hook there is ("he really jumped off the dam")
+    good = [t.strip() for t in (context or []) if 8 <= len(t.strip()) <= 60]
+    if good:
+        hook = good[0]
+    who = f" | {streamer}" if streamer else " | GTA 6"
+    base = {"hook": hook, "title": f"{hook.rstrip('.')}{who}"[:90],
             "description": "GTA 6 moment. Follow for a new clip every day."}
-    if cfg["llm"]["provider"] == "ollama":
-        out = _ollama(cfg, "You write hooks for 15-25 second GTA 6 gameplay clips. The clip opens on "
-                           "the payoff for 1.5s, then rewinds to the build-up.\n"
-                           f"Session theme: {challenge or 'general gameplay'}\n"
-                           f"What was said in the clip: {transcript[:400] or '(unknown)'}\n"
-                           "Return JSON with keys: hook (max 7 words, creates curiosity, "
-                           "no emojis), title (max 70 chars), description (1 sentence).")
+    if cfg["llm"]["provider"] != "none":
+        out = _ask(cfg, "You write hooks for 15-25 second GTA 6 clips. The clip opens on "
+                        "the payoff for 1.5s, then rewinds to the build-up.\n"
+                        f"Streamer: {streamer or 'me'}\nStream / session title: {challenge or 'GTA 6'}\n"
+                        f"Titles viewers gave their clips of this moment: {'; '.join(context or []) or '(none)'}\n"
+                        f"What was said: {transcript[:400] or '(unknown)'}\n"
+                        "Return JSON with keys: hook (max 7 words, creates curiosity, "
+                        "no emojis), title (max 70 chars), description (1 sentence). Don't invent "
+                        "events that the clip titles don't support.")
         if out:
             return {**base, **{k: v for k, v in _clean(out, list(base)).items() if v}}
     return base

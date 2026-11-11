@@ -8,3 +8,5 @@ sessions/
 *.mkv
 *.wav
 !assets/sfx/*.wav
+secrets.yaml
+tools/

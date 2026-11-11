@@ -38,8 +38,30 @@ def main() -> None:
     session_args(p)
     p.add_argument("--no-captions", action="store_true")
 
+    sub.add_parser("sources", help="check which streamers in sources.yaml are approved")
+
+    p = sub.add_parser("twitch", help="clip an approved streamer's VOD (default: their latest)")
+    p.add_argument("source", nargs="?", help="name from sources.yaml (omit with --all)")
+    p.add_argument("--all", action="store_true", help="latest VOD of every approved source")
+    p.add_argument("--vod", help="a specific VOD id (from twitch.tv/videos/<id>)")
+    p.add_argument("--chat", help="chat replay JSON, if you downloaded it yourself")
+    p.add_argument("--max", type=int, help="most clips to make")
+    p.add_argument("--no-finish", action="store_true", help="stop after rough cuts")
+    p.add_argument("--no-captions", action="store_true")
+
+    p = sub.add_parser("facecam", help="save a frame with a 10%% grid to find a streamer's face cam box")
+    p.add_argument("source")
+    p.add_argument("--vod", help="VOD id (default: latest)")
+    p.add_argument("--at", type=float, default=600, help="seconds into the VOD (default 600)")
+    p.add_argument("--file", help="use a local video file instead of downloading")
+
     a = ap.parse_args()
     cfg = config.load(a.config)
+
+    if a.cmd == "sources":
+        from . import sources
+        sources.report()
+        return
 
     if a.cmd == "log":
         from . import logger
@@ -53,6 +75,12 @@ def main() -> None:
         return
     if a.cmd == "kit":
         pipeline.kit(Path(a.session_out))
+        return
+    if a.cmd == "twitch":
+        _twitch(cfg, a)
+        return
+    if a.cmd == "facecam":
+        _facecam(a)
         return
 
     s = pipeline.load_session(a.session, a.video, a.challenge)
@@ -81,6 +109,52 @@ def main() -> None:
             print(f"     save it as {dirs[0] / 'vo.wav'}, then: python -m clipfarm finish \"{dirs[0]}\""
                   f" && python -m clipfarm kit \"{s['out']}\"")
         print("  3. Post each clip with the copy buttons, then tick 'posted'.")
+
+
+
+def _twitch(cfg: dict, a) -> None:
+    from . import sources, twitch
+    if a.all:
+        names = [s.get("name") or s.get("login") for s in sources.load_all() if not sources.problems(s)]
+        if not names:
+            raise SystemExit("No approved sources. Run: python -m clipfarm sources")
+    elif a.source:
+        names = [a.source]
+    else:
+        raise SystemExit("Name a source from sources.yaml, or use --all")
+    helix = twitch.Helix()
+    caps = False if a.no_captions else None
+    for name in names:
+        src = sources.get(name)  # refuses anything without permission
+        session_out, dirs = pipeline.build_twitch(cfg, src, vod_id=a.vod if not a.all else None,
+                                                  chat_file=a.chat, max_n=a.max, helix=helix)
+        if a.no_finish:
+            continue
+        print("Finishing clips...")
+        for d in dirs:
+            pipeline.finish(cfg, d, use_captions=caps)
+        post = pipeline.kit(session_out)
+        print(f"Review: {post / 'review.html'}\n")
+
+
+def _facecam(a) -> None:
+    from . import sources, twitch
+    src = sources.get(a.source)
+    out = config.ROOT / "out" / f"facecam-{src['name']}.png"
+    out.parent.mkdir(exist_ok=True)
+    if a.file:
+        video, at = a.file, a.at
+    else:
+        h = twitch.Helix()
+        vod = h.vod(a.vod) if a.vod else h.vods(h.user_id(src["login"]), 1)[0]
+        video = out.with_suffix(".mp4")
+        twitch.download_section(vod["id"], a.at, a.at + 3, video)
+        at = 1.0
+    ff.run(["-ss", f"{at}", "-i", video, "-frames:v", "1", "-vf",
+            "scale=1280:-2,drawgrid=w=iw/10:h=ih/10:t=1:c=yellow@0.8", out])
+    print(f"Saved {out}")
+    print("Each grid square is 10% of the frame. Count squares to the face cam's top-left corner (x, y)")
+    print("and its size (w, h), then set e.g.  facecam: [0.0, 0.7, 0.2, 0.3]  in sources.yaml.")
 
 
 if __name__ == "__main__":
