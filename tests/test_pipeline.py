@@ -29,6 +29,7 @@ def cfg(tmp_path, monkeypatch):
     c = config.load()
     c["video"]["preset"] = "ultrafast"
     c["moments"]["max"] = 3
+    c["experiments"]["enabled"] = False  # these tests check the original fixed formats
     monkeypatch.setattr(pipeline, "ROOT", tmp_path)
     return c
 

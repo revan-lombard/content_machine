@@ -99,23 +99,39 @@ MOMENT_HOOKS = [
     "Nobody talks about this", "That went wrong FAST", "Worst timing ever",
     "How did this happen?", "This is why I love GTA 6", "I can't believe that worked",
 ]
+QUESTION_HOOKS = [
+    "Did that really just happen?", "How is this even possible?", "Would you have survived this?",
+    "What would you have done here?", "Craziest GTA 6 moment yet?", "How did this actually work?",
+    "Is GTA 6 physics broken?", "Who saw that coming?",
+]
+# Hook styles under test (see tracker.py). "viewer_title" falls back to "curiosity" when no
+# usable viewer clip title exists, and "ai" falls back to "curiosity" without a local AI.
+HOOK_STYLES = ["viewer_title", "question", "curiosity", "ai"]
 
 
 def moment_text(cfg: dict, challenge: str, index: int, transcript: str = "",
-                context: list[str] | None = None, streamer: str = "") -> dict:
-    """Hook + title for a short moment clip. `context` = titles viewers gave their Twitch clips."""
+                context: list[str] | None = None, streamer: str = "",
+                hook_style: str | None = None) -> dict:
+    """Hook + title for a short moment clip. `context` = titles viewers gave their Twitch clips.
+    Returns hook/title/description plus the hook_style actually used."""
     rng = random.Random(f"{challenge}-{index}-{streamer}")
-    hook = rng.choice(MOMENT_HOOKS)
-    # a viewer's clip title is often the best hook there is ("he really jumped off the dam")
     good = [t.strip() for t in (context or []) if 8 <= len(t.strip()) <= 60]
-    if good:
-        hook = good[0]
-    who = f" | {streamer}" if streamer else " | GTA 6"
-    base = {"hook": hook, "title": f"{hook.rstrip('.')}{who}"[:90],
+    style = hook_style or ("viewer_title" if good else "curiosity")
+    if style == "viewer_title" and not good:
+        style = "curiosity"
+    if style == "ai" and cfg["llm"]["provider"] == "none":
+        style = "curiosity"
+    if style == "viewer_title":
+        hook = good[0]  # a viewer's clip title is often the best hook there is
+    elif style == "question":
+        hook = rng.choice(QUESTION_HOOKS)
+    else:
+        hook = rng.choice(MOMENT_HOOKS)
+    # the streamer's credit is added per platform when posting, so the title stays clean
+    base = {"hook": hook, "title": f"{hook.rstrip('.')} | GTA 6"[:90],
             "description": "GTA 6 moment. Follow for a new clip every day."}
-    if cfg["llm"]["provider"] != "none":
-        out = _ask(cfg, "You write hooks for 15-25 second GTA 6 clips. The clip opens on "
-                        "the payoff for 1.5s, then rewinds to the build-up.\n"
+    if style == "ai":
+        out = _ask(cfg, "You write hooks for 15-25 second GTA 6 clips.\n"
                         f"Streamer: {streamer or 'me'}\nStream / session title: {challenge or 'GTA 6'}\n"
                         f"Titles viewers gave their clips of this moment: {'; '.join(context or []) or '(none)'}\n"
                         f"What was said: {transcript[:400] or '(unknown)'}\n"
@@ -123,5 +139,7 @@ def moment_text(cfg: dict, challenge: str, index: int, transcript: str = "",
                         "no emojis), title (max 70 chars), description (1 sentence). Don't invent "
                         "events that the clip titles don't support.")
         if out:
-            return {**base, **{k: v for k, v in _clean(out, list(base)).items() if v}}
-    return base
+            base = {**base, **{k: v for k, v in _clean(out, list(base)).items() if v}}
+        else:
+            style = "curiosity"
+    return {**base, "hook_style": style}

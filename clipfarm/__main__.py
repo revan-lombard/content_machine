@@ -55,8 +55,33 @@ def main() -> None:
     p.add_argument("--at", type=float, default=600, help="seconds into the VOD (default 600)")
     p.add_argument("--file", help="use a local video file instead of downloading")
 
+    p = sub.add_parser("review", help="open the review + performance dashboard in your browser")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-browser", action="store_true")
+
+    sub.add_parser("stats", help="fetch YouTube view counts and show the format leaderboard")
+
+    p = sub.add_parser("post", help="log a post by hand (the review page does this too)")
+    p.add_argument("clip_id", help="e.g. streamer-777/moments/03 (shown in script.yaml)")
+    p.add_argument("platform", choices=["youtube", "tiktok", "instagram", "facebook", "x"])
+    p.add_argument("url")
+
     a = ap.parse_args()
     cfg = config.load(a.config)
+
+    if a.cmd == "review":
+        from . import server
+        server.serve(cfg, a.port, not a.no_browser)
+        return
+    if a.cmd == "stats":
+        _stats(cfg)
+        return
+    if a.cmd == "post":
+        from . import tracker
+        with pipeline.db() as con:
+            tracker.record_post(con, a.clip_id, a.platform, a.url)
+        print("Logged.")
+        return
 
     if a.cmd == "sources":
         from . import sources
@@ -135,6 +160,28 @@ def _twitch(cfg: dict, a) -> None:
             pipeline.finish(cfg, d, use_captions=caps)
         post = pipeline.kit(session_out)
         print(f"Review: {post / 'review.html'}\n")
+
+
+def _stats(cfg: dict) -> None:
+    from . import formats, stats, tracker, writer
+    exp = cfg["experiments"]
+    with pipeline.db() as con:
+        n = stats.fetch_youtube(con)
+        print(f"YouTube: updated {n} post(s)")
+        todo = tracker.todo(con, exp.get("score_hours", 48))
+        if todo:
+            print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")
+        for dim, arms in (("format", [f for f in exp["formats"] if f in formats.ALL]),
+                          ("hook_style", pipeline._arms(cfg, "hook_style", has_viewer_title=True))):
+            st = tracker.arm_stats(con, dim, arms, exp.get("score_hours", 48))
+            share, warming = tracker.mix(con, cfg, dim, [x for x in arms if x != "countdown"])
+            print(f"\n{dim.replace('_', ' ').title()}s" + ("  (warming up - rotating evenly)" if warming else ""))
+            print(f"  {'option':<14}{'clips':>6}{'scored':>8}{'win rate':>10}{'next mix':>10}")
+            for x in arms:
+                wr = st[x]["win_rate"]
+                print(f"  {x:<14}{st[x]['clips']:>6}{st[x]['scored']:>8}"
+                      f"{'-' if wr is None else f'{wr * 100:.0f}%':>10}"
+                      f"{'+1/stream' if x == 'countdown' else f'{share[x] * 100:.0f}%':>10}")
 
 
 def _facecam(a) -> None:

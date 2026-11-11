@@ -64,6 +64,68 @@ Each clip's `script.yaml` records where it came from: VOD link, timestamp and pe
   Load an 8B instruct model, start its local server, and set
   `llm: provider: lmstudio`, `url: http://localhost:1234`.
 
+## Format testing and performance tracking
+
+Every clip is made in one of several **formats** with one of several **hook styles**. The
+tracker learns which ones get the most views, and makes more of the winners.
+
+| Format | What it is |
+|---|---|
+| `payoff_first` | 1.5s flash of the payoff, then rewinds to the build-up |
+| `straight` | Plain build-up into the payoff. This is the control the others are measured against |
+| `beat_story` | Your structure, compressed: question hook, build, "Wait for it...", then the payoff with a zoom punch, then a hard cut |
+| `loop` | About 9s, ends right on the payoff so it loops |
+| `countdown` | Top 3 moments of a stream, #3 to #1 (one extra clip per stream) |
+
+| Hook style | Opening line |
+|---|---|
+| `viewer_title` | The title a Twitch viewer gave their clip of the moment |
+| `question` | "Did that really just happen?" and similar |
+| `curiosity` | "Wait for it...", "I did NOT expect that" and similar |
+| `ai` | Written by your local AI (only when `llm` is set up) |
+
+### How a winner is decided
+
+- **A post wins** when its views 48 hours after posting beat the median of your last 30
+  posts on the same platform. That keeps the test fair as your accounts grow, and lets
+  YouTube and TikTok numbers be compared even though their reach differs.
+- **Warm-up:** until every option has 15 scored clips, they rotate evenly.
+- **After warm-up:** formats that win more get more of the next clips. 20% of picks stay
+  random, so a lucky early streak can't lock in a winner and tastes that change get noticed.
+- **Settings:** all in `experiments:` in `config.yaml`. Turn an option off by removing it
+  from the list.
+
+### The daily loop
+
+```
+twitch.bat      # make today's clips (formats are assigned automatically)
+review.bat      # updates YouTube stats, then opens http://localhost:8765
+```
+
+- **Review & post tab:** watch each clip, copy its caption, post it, then paste the link
+  to the post and press **Posted**. That link is how its views get tracked. Clips you've
+  posted everywhere hide themselves.
+- **Performance tab:** shows win rate, median views and engagement per format and per hook
+  style, each one's share of upcoming clips, per-platform medians, and your best posts.
+  Posts that are 48h+ old and still missing numbers are listed at the top: open each one
+  and type in its views.
+
+### Where the numbers come from
+
+- **YouTube: automatic.** Create a free YouTube Data API key (steps in
+  `secrets.example.yaml`). `review.bat` fetches the counts each time you run it, or run
+  `python -m clipfarm stats` on its own.
+- **TikTok, Instagram, Facebook, X: typed in on the Performance tab** for now. Their
+  stats APIs need app reviews or business accounts, which is the next phase.
+- **Data storage:** everything is kept in `data/tracker.db` on your PC. Back it up now
+  and then, because it holds all your results.
+
+### Optional: run it every day by itself
+
+In Windows **Task Scheduler**, go to **Create Basic Task → Daily**, choose
+**Start a program**, and point it at `twitch.bat` in this folder. Clips will be waiting
+for you to review.
+
 ## Clipping your own gameplay
 
 You play with OBS recording and press a hotkey after anything good happens.
@@ -153,6 +215,9 @@ python -m clipfarm sources                    which streamers are approved
 python -m clipfarm twitch NAME [--vod ID] [--chat FILE] [--max N]
 python -m clipfarm twitch --all               latest VOD of every approved streamer
 python -m clipfarm facecam NAME               frame + grid to find the face cam box
+python -m clipfarm review                     review/post page + performance dashboard
+python -m clipfarm stats                      fetch YouTube stats, print the format leaderboard
+python -m clipfarm post CLIP_ID PLATFORM URL  log a post without the web page
 ```
 
 `SESSION` is a `sessions\*.beats.json` file from the logger, or a video file.

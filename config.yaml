@@ -83,4 +83,19 @@ llm:
   model: llama3.1
   url: http://localhost:11434
 
+# Format testing. Every clip gets a format and hook style; the tracker learns which win.
+#   formats:     payoff_first (flash the payoff, then rewind) | straight (plain, the control)
+#                beat_story (question hook -> build -> "Wait for it..." -> payoff -> hard cut)
+#                loop (~9s, ends on the payoff so it loops) | countdown (top 3 of a stream)
+#   hook_styles: viewer_title (a Twitch viewer's clip title) | question | curiosity | ai (needs llm)
+# Until every option has min_scored scored clips, they rotate evenly. After that, winners get
+# more clips, but `explore` (20%) of picks stay random so the test keeps learning.
+experiments:
+  enabled: true
+  formats: [payoff_first, straight, beat_story, loop, countdown]
+  hook_styles: [viewer_title, question, curiosity, ai]
+  min_scored: 15
+  explore: 0.2
+  score_hours: 48   # a post is scored on its views this many hours after posting
+
 hashtags: ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"]

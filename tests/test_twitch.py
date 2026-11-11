@@ -128,6 +128,7 @@ def test_twitch_end_to_end(fake_vod, tmp_path):
     cfg = config.load()
     cfg["video"]["preset"] = "ultrafast"
     cfg["video"]["encoder"] = "h264_amf"  # not available here: must fall back to the CPU encoder
+    cfg["experiments"]["enabled"] = False  # fixed payoff_first + viewer-title hooks
     session_out, dirs = pipeline.build_twitch(cfg, dict(SRC), helix=FakeHelix())
     assert len(dirs) == 2
     # only the parts around each moment were downloaded, never the whole 5-minute VOD

@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import html
 import json
+import random
 import shutil
 from pathlib import Path
 
 import yaml
 
-from . import captions, detect, ff, render, writer
+from . import captions, detect, ff, formats, render, tracker, writer
 from .config import BEATS, ROOT
 
 SFX_DIR = ROOT / "assets" / "sfx"
@@ -41,10 +42,59 @@ def load_session(path: str | Path, video: str | None, challenge: str | None) -> 
     return s
 
 
+def db():
+    return tracker.connect(ROOT / "data" / "tracker.db")
+
+
+def clip_id(clip_dir: Path) -> str:
+    try:
+        return Path(clip_dir).resolve().relative_to((ROOT / "out").resolve()).as_posix()
+    except ValueError:
+        return Path(clip_dir).resolve().as_posix()
+
+
 def _save_script(clip_dir: Path, meta: dict) -> None:
+    """Write script.yaml and log the clip (with its format + hook style) for performance tracking."""
+    cid = clip_id(clip_dir)
+    meta = {"clip_id": cid, **meta}
     (clip_dir / "script.yaml").write_text(
         "# Edit any text below, then run:  python -m clipfarm finish " + clip_dir.as_posix() + "\n"
         + yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, width=1000), encoding="utf-8")
+    src = meta.get("source") or {}
+    with db() as con:
+        tracker.register_clip(con, cid, source=src.get("login", "own"), fmt=meta.get("format", ""),
+                              hook_style=meta.get("hook_style", ""),
+                              length=float(meta.get("length") or 0), title=meta.get("title", ""),
+                              path=str(clip_dir.resolve()))
+
+
+def _arms(cfg: dict, dim: str, has_viewer_title: bool = False) -> list[str]:
+    exp = cfg["experiments"]
+    if dim == "format":
+        return [f for f in exp["formats"] if f in formats.SINGLE] or ["payoff_first"]
+    styles = [h for h in exp["hook_styles"] if h in writer.HOOK_STYLES]
+    if not has_viewer_title:
+        styles = [h for h in styles if h != "viewer_title"]
+    if cfg["llm"]["provider"] == "none":
+        styles = [h for h in styles if h != "ai"]
+    return styles or ["curiosity"]
+
+
+def pick_variant(cfg: dict, con, has_viewer_title: bool = False, rng=None) -> tuple[str, str | None]:
+    """Format + hook style for the next clip, from the experiment (or fixed if experiments are off)."""
+    if not cfg["experiments"].get("enabled", True):
+        return "payoff_first", None
+    rng = rng or random.Random()
+    fmt = tracker.choose(con, cfg, "format", _arms(cfg, "format"), rng)
+    style = tracker.choose(con, cfg, "hook_style", _arms(cfg, "hook_style", has_viewer_title), rng)
+    return fmt, style
+
+
+def _want_countdown(cfg: dict, con, n_moments: int) -> bool:
+    exp = cfg["experiments"]
+    if not exp.get("enabled", True) or "countdown" not in exp["formats"] or n_moments < 3:
+        return False
+    return tracker.want_extra(con, cfg, "countdown", _arms(cfg, "format"))
 
 
 def _sfx(name: str) -> Path | None:
@@ -138,7 +188,8 @@ def build_challenge(cfg: dict, s: dict) -> Path:
     render.concat(parts, clip_dir / "rough.mp4")
     for p in parts:
         p.unlink()
-    meta = {"kind": "challenge", "challenge": s.get("challenge", ""), "title": text["title"],
+    meta = {"kind": "challenge", "format": "challenge8", "hook_style": "challenge",
+            "length": round(t, 2), "challenge": s.get("challenge", ""), "title": text["title"],
             "description": text["description"], "hashtags": cfg["hashtags"], "beats": beats}
     _save_script(clip_dir, meta)
     _write_vo_script(clip_dir, beats)
@@ -161,7 +212,7 @@ def _write_vo_script(clip_dir: Path, beats: list[dict]) -> None:
 # ---------------------------------------------------------------- Tier B
 
 def build_moments(cfg: dict, s: dict) -> list[Path]:
-    m, post = cfg["moments"], float(cfg["post_roll"])
+    m = cfg["moments"]
     total = ff.duration(s["recording"])
     # a tag is pressed just after the moment; a loudness spike IS the moment
     peaks = [(x["t"] - 0.5, f"tag:{x['beat']}") for x in s["tags"]
@@ -177,42 +228,51 @@ def build_moments(cfg: dict, s: dict) -> list[Path]:
     picked = sorted(picked[: m["max"]])
     out = []
     print(f"Moment clips: {len(picked)}")
-    for i, (p, why) in enumerate(picked, 1):
-        clip_dir = Path(s["out"]) / "moments" / f"{i:02d}"
-        render_moment(cfg, s["recording"], p, total, clip_dir)
-        text = writer.moment_text(cfg, s.get("challenge", ""), i)
-        meta = {"kind": "moment", "found_by": why, "source_at": round(p, 2),
-                "title": text["title"], "description": text["description"], "hashtags": cfg["hashtags"],
-                "beats": [{"key": "hook", "start": 0.0, "end": round(float(m["hook_flash"]) + 2.0, 2),
-                           "text": text["hook"]}]}
-        _save_script(clip_dir, meta)
-        print(f"  {i:02d}  at {p:7.1f}s  ({why})  -> {clip_dir}")
-        out.append(clip_dir)
+    with db() as con:
+        for i, (p, why) in enumerate(picked, 1):
+            clip_dir = Path(s["out"]) / "moments" / f"{i:02d}"
+            fmt, style = pick_variant(cfg, con)
+            text = writer.moment_text(cfg, s.get("challenge", ""), i, hook_style=style)
+            beats = formats.render_single(cfg, fmt, s["recording"], p, total, clip_dir, text["hook"])
+            meta = {"kind": "moment", "format": fmt, "hook_style": text["hook_style"],
+                    "length": round(ff.duration(clip_dir / "rough.mp4"), 2),
+                    "found_by": why, "source_at": round(p, 2),
+                    "title": text["title"], "description": text["description"],
+                    "hashtags": cfg["hashtags"], "beats": beats}
+            _save_script(clip_dir, meta)
+            print(f"  {i:02d}  at {p:7.1f}s  {fmt:<12} {text['hook_style']:<12} ({why})")
+            out.append(clip_dir)
+        if _want_countdown(cfg, con, len(picked)):
+            items = [(s["recording"], p, total) for p, _ in picked[:3]]
+            out.append(_countdown(cfg, Path(s["out"]), items, "Top 3 moments this session",
+                                  {"hashtags": cfg["hashtags"]}))
     return out
+
+
+def _countdown(cfg: dict, session_out: Path, items, hook: str, extra: dict, facecam=None) -> Path:
+    clip_dir = session_out / "countdown"
+    beats = formats.render_countdown(cfg, items, clip_dir, hook, facecam=facecam)
+    title = hook if len(hook) <= 90 else hook[:87] + "..."
+    meta = {"kind": "moment", "format": "countdown", "hook_style": "countdown",
+            "length": round(ff.duration(clip_dir / "rough.mp4"), 2),
+            "title": title, "description": "The best moments, ranked.", **extra, "beats": beats}
+    _save_script(clip_dir, meta)
+    print(f"  countdown of the top {min(3, len(items))} -> {clip_dir}")
+    return clip_dir
 
 
 def render_moment(cfg: dict, src: str | Path, peak: float, total: float, clip_dir: Path,
                   length: float | None = None, facecam: list[float] | None = None) -> None:
-    """Payoff flash (hook_flash seconds around the peak), then the build-up into the payoff."""
-    m = cfg["moments"]
-    clip_dir.mkdir(parents=True, exist_ok=True)
-    hf = float(m["hook_flash"])
-    f_start = max(0.0, peak - hf / 2)
-    main_end = min(total, peak + 2.0)
-    main_start = max(0.0, main_end - float(length or m["length"]))
-    flash, main = clip_dir / "p0.mp4", clip_dir / "p1.mp4"
-    render.segment(cfg, str(src), f_start, hf, flash, punch=True, facecam=facecam)
-    render.segment(cfg, str(src), main_start, main_end - main_start, main, facecam=facecam)
-    render.concat([flash, main], clip_dir / "rough.mp4")
-    flash.unlink()
-    main.unlink()
+    """The original payoff-first moment clip (kept for compatibility)."""
+    formats.render_single(cfg, "payoff_first", src, peak, total, clip_dir, "", length, facecam)
 
 
 # ---------------------------------------------------------------- Twitch
 
 def build_twitch(cfg: dict, src: dict, vod_id: str | None = None, chat_file: str | None = None,
-                 max_n: int | None = None, helix=None) -> tuple[Path, list[Path]]:
-    """Best moments of an approved streamer's VOD -> moment clips with credit + campaign hashtags."""
+                 max_n: int | None = None, helix=None, rng=None) -> tuple[Path, list[Path]]:
+    """Best moments of an approved streamer's VOD -> clips in the formats under test,
+    with credit + campaign hashtags."""
     from . import twitch
     m = cfg["moments"]
     rules = src.get("rules") or {}
@@ -240,38 +300,55 @@ def build_twitch(cfg: dict, src: dict, vod_id: str | None = None, chat_file: str
     if not picked:
         raise SystemExit("  no moments found: nobody clipped this VOD and there's no chat replay")
 
+    hf = float(m["hook_flash"])
     length = float(m["length"])
-    length = max(float(rules.get("min_length", 0)) - float(m["hook_flash"]), length)
-    length = min(float(rules.get("max_length", 600)) - float(m["hook_flash"]), length)
+    length = max(float(rules.get("min_length", 0)) - hf, length)
+    length = min(float(rules.get("max_length", 600)) - hf, length)
     credit = rules.get("credit") or f"@{src['login']}"
     tags = rules.get("hashtags") or cfg["hashtags"]
-    out = []
-    for i, mo in enumerate(picked, 1):
-        sec_start = max(0.0, mo.peak + 2.0 - length - 3.0)
-        sec_end = min(vod_len, mo.peak + 5.0) if vod_len else mo.peak + 5.0
-        piece = session_out / "sources" / f"{i:02d}.mp4"
-        piece.parent.mkdir(exist_ok=True)
-        print(f"  {i:02d}  {mo.peak / 60:6.1f} min  score {mo.score:4.1f}  ({'; '.join(mo.reasons)})")
-        try:
-            twitch.download_section(vod["id"], sec_start, sec_end, piece)
-        except RuntimeError as e:
-            print(f"      skipped: {e}")
-            continue
-        clip_dir = session_out / "moments" / f"{i:02d}"
-        render_moment(cfg, piece, mo.peak - sec_start, ff.duration(piece), clip_dir,
-                      length=length, facecam=src.get("facecam"))
-        titles = [t for t in mo.clip_titles if t.strip() and t.strip() != vod.get("title", "").strip()]
-        text = writer.moment_text(cfg, vod.get("title", ""), i, context=titles, streamer=src["login"])
-        meta = {"kind": "moment", "found_by": "; ".join(mo.reasons), "source_at": round(mo.peak, 2),
-                "source": {"platform": "twitch", "login": src["login"], "vod": vod["id"],
-                           "url": f"https://www.twitch.tv/videos/{vod['id']}?t={int(mo.peak // 60)}m{int(mo.peak % 60)}s",
-                           "permission": (src.get("permission") or {}).get("type")},
-                "credit": credit, "layout": "split" if src.get("facecam") else "single",
-                "title": text["title"], "description": text["description"], "hashtags": tags,
-                "beats": [{"key": "hook", "start": 0.0, "end": round(float(m["hook_flash"]) + 2.0, 2),
-                           "text": text["hook"]}]}
-        _save_script(clip_dir, meta)
-        out.append(clip_dir)
+    facecam = src.get("facecam")
+    source_meta = lambda peak: {
+        "platform": "twitch", "login": src["login"], "vod": vod["id"],
+        "url": f"https://www.twitch.tv/videos/{vod['id']}?t={int(peak // 60)}m{int(peak % 60)}s",
+        "permission": (src.get("permission") or {}).get("type")}
+    common = {"credit": credit, "layout": "split" if facecam else "single", "hashtags": tags}
+
+    out, pieces = [], []
+    with db() as con:
+        for i, mo in enumerate(picked, 1):
+            sec_start = max(0.0, mo.peak + 2.0 - length - 3.0)
+            sec_end = min(vod_len, mo.peak + 5.0) if vod_len else mo.peak + 5.0
+            piece = session_out / "sources" / f"{i:02d}.mp4"
+            piece.parent.mkdir(exist_ok=True)
+            try:
+                twitch.download_section(vod["id"], sec_start, sec_end, piece)
+            except RuntimeError as e:
+                print(f"  {i:02d}  skipped: {e}")
+                continue
+            local_peak, total = mo.peak - sec_start, ff.duration(piece)
+            pieces.append((mo, piece, local_peak, total))
+            titles = [t for t in mo.clip_titles if t.strip() and t.strip() != vod.get("title", "").strip()]
+            has_title = any(8 <= len(t.strip()) <= 60 for t in titles)
+            fmt, style = pick_variant(cfg, con, has_title, rng)
+            text = writer.moment_text(cfg, vod.get("title", ""), i, context=titles,
+                                      streamer=src["login"], hook_style=style)
+            clip_dir = session_out / "moments" / f"{i:02d}"
+            beats = formats.render_single(cfg, fmt, piece, local_peak, total, clip_dir, text["hook"],
+                                          length=length, facecam=facecam)
+            meta = {"kind": "moment", "format": fmt, "hook_style": text["hook_style"],
+                    "length": round(ff.duration(clip_dir / "rough.mp4"), 2),
+                    "found_by": "; ".join(mo.reasons), "source_at": round(mo.peak, 2),
+                    "source": source_meta(mo.peak), **common,
+                    "title": text["title"], "description": text["description"], "beats": beats}
+            _save_script(clip_dir, meta)
+            print(f"  {i:02d}  {mo.peak / 60:6.1f} min  {fmt:<12} {text['hook_style']:<12} "
+                  f"score {mo.score:4.1f} ({'; '.join(mo.reasons)})")
+            out.append(clip_dir)
+        if _want_countdown(cfg, con, len(pieces)):
+            best = sorted(pieces, key=lambda x: -x[0].score)[:3]
+            items = [(p, lp, t) for _, p, lp, t in best]
+            out.append(_countdown(cfg, session_out, items, f"Top 3 moments from {src['login']}'s stream",
+                                  {**common, "source": source_meta(best[0][0].peak)}, facecam=facecam))
     return session_out, out
 
 
@@ -300,7 +377,7 @@ def finish(cfg: dict, clip_dir: Path, vo: str | None = None, use_captions: bool 
         p = _sfx(b["key"])
         if p:
             sfx.append((p, b["start"]))
-    if meta["kind"] == "moment" and _sfx("rewind"):
+    if meta.get("format", "payoff_first") == "payoff_first" and meta["kind"] == "moment" and _sfx("rewind"):
         sfx.append((_sfx("rewind"), float(cfg["moments"]["hook_flash"])))
     out = render.finish(cfg, clip_dir, "overlay.ass", vo_path, sfx)
     print(f"  done -> {out}" + ("  (with voiceover)" if vo_path else ""))
@@ -332,12 +409,15 @@ def kit(session_out: Path) -> Path:
     post = session_out / "post"
     post.mkdir(exist_ok=True)
     items = []
-    clips = sorted(session_out.glob("challenge/final.mp4")) + sorted(session_out.glob("moments/*/final.mp4"))
+    clips = (sorted(session_out.glob("challenge/final.mp4")) + sorted(session_out.glob("countdown/final.mp4"))
+             + sorted(session_out.glob("moments/*/final.mp4")))
     for n, final in enumerate(clips, 1):
         meta = yaml.safe_load((final.parent / "script.yaml").read_text(encoding="utf-8"))
         name = f"{n:02d}-{meta['kind']}.mp4"
         shutil.copy2(final, post / name)
-        items.append({"file": name, "kind": meta["kind"], **_platform_text(meta)})
+        items.append({"file": name, "kind": meta["kind"], "clip_id": meta.get("clip_id", ""),
+                      "format": meta.get("format", ""), "hook_style": meta.get("hook_style", ""),
+                      **_platform_text(meta)})
     (post / "posts.json").write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
     (post / "review.html").write_text(_review_html(session_out.name, items), encoding="utf-8")
     print(f"Post kit: {len(items)} clips -> {post / 'review.html'}")

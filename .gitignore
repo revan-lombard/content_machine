@@ -10,3 +10,4 @@ sessions/
 !assets/sfx/*.wav
 secrets.yaml
 tools/
+data/
