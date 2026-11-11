@@ -1,0 +1,76 @@
+# GTA 6 clip farm settings. Every value here has a default in clipfarm/config.py,
+# so you only need to keep the lines you change.
+
+# Your "Let's Build X" structure, turned into "Can I do X in GTA 6?".
+# Seconds per beat for the 60s challenge Short (Tier A).
+template:
+  hook: 3        # 01  Create a question the viewer needs answered
+  problem: 5     # 02  Show why it's hard
+  challenge: 4   # 03  Rules + stakes: will it work?
+  build: 18      # 04  The attempt - only shots that move the story
+  obstacle: 10   # 05  "That's not supposed to happen..."
+  reengage: 8    # 06  "One more thing to try..."
+  result: 9      # 07  The payoff
+  end: 3         # 08  One-line kicker, hard cut
+
+# Hotkeys you press WHILE PLAYING, right after the moment happens.
+hotkeys:
+  problem: f5     # the situation is set up / it's looking hard
+  attempt: f6     # a good attempt / progress shot (press several times)
+  obstacle: f7    # it went wrong
+  retry: f8       # the last-ditch plan starts
+  result: f9      # the payoff (success or epic fail)
+  moment: f10     # any clip-worthy moment (becomes a short "moment clip")
+  undo: f11       # delete the last tag
+  record: f12     # only used without OBS websocket: press together with your OBS record key
+
+# Seconds of footage kept AFTER each hotkey press (you press just after it happens).
+post_roll: 1.5
+
+obs:
+  use_websocket: true   # OBS -> Tools -> WebSocket Server Settings -> Enable
+  host: localhost
+  port: 4455
+  password: ""
+
+video:
+  width: 1080
+  height: 1920
+  fps: 30
+  mode: blur        # blur = gameplay over a blurred copy of itself | crop = full-height center crop
+  fg_aspect: 1.25   # blur mode: trim the sides of 16:9 gameplay to this aspect so it's bigger on a phone
+  crop_x: 0.5       # crop mode: horizontal focus, 0 = left edge, 1 = right edge
+  crf: 20
+  preset: veryfast
+  punch_in: true    # quick zoom punch at the start of the obstacle and result beats
+
+text:
+  font: Arial Black
+  beat_size: 84     # the big on-screen beat lines (hook, stakes, "that's not supposed to happen")
+  caption_size: 70  # spoken-word captions
+
+captions:
+  enabled: true
+  model: small      # faster-whisper model: tiny | base | small | medium (bigger = better, slower)
+  words_per_line: 3
+
+audio:
+  game_volume: 1.0        # when there is no voiceover
+  game_volume_under_vo: 0.3
+
+# Short "moment clips" (Tier B), cut from tags + automatic loudness spikes.
+moments:
+  length: 18        # seconds of build-up + payoff
+  hook_flash: 1.5   # open on this many seconds of the payoff, then rewind to the build-up
+  max: 10           # most clips per recording
+  min_gap: 20       # seconds between two clips
+  auto: true        # also find loud moments you didn't tag
+
+# Writes hooks, titles and descriptions. "none" uses built-in templates (free, offline).
+# "ollama" uses a free local model: install https://ollama.com, then `ollama pull llama3.1`.
+llm:
+  provider: none
+  model: llama3.1
+  url: http://localhost:11434
+
+hashtags: ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"]

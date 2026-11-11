@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+out/
+sessions/
+*.mp4
+*.mkv
+*.wav
+!assets/sfx/*.wav
