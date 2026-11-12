@@ -133,8 +133,8 @@ review.bat      # updates YouTube stats, then opens http://localhost:8765
   - `fb.watch/...` short links don't contain the video id, so log the full link instead.
   - Needs the `read_insights` permission. If you connected Meta before this was added, run
     `python -m clipfarm connect meta --token ...` once more with it ticked.
-- **TikTok: automatic** for posts you log with a full `tiktok.com/@you/video/...` link.
-  Posting to TikTok stays manual, but its numbers don't need typing.
+- **TikTok: automatic** for posts made through the publisher (inbox drafts are logged once you
+  post them) and for posts you log with a full `tiktok.com/@you/video/...` link.
   - One-time setup: follow the `tiktok` steps in `secrets.example.yaml` (a free developer
     app with Login Kit and the `video.list` scope), then run `python -m clipfarm connect tiktok`.
   - TikTok only returns stats for the account that signed in, so connect the account you post with.
@@ -221,16 +221,38 @@ finishes, and adds the clip to the review page. Approve it there to auto-post it
 
 **Approve** a clip on the review page and it gets posted to **YouTube Shorts, Instagram
 Reels and Facebook Reels** automatically, with the captions, credit and hashtags already
-written. **TikTok and X stay manual** (copy the caption, post, paste the link back), for
-these reasons:
+written. **TikTok** is nearly automatic (see below). **X stays manual** (copy the caption,
+post, paste the link back).
 
 | Platform | Status |
 |---|---|
 | YouTube | Works. **Uploads stay private until Google approves an audit of your API project.** Apply early: Google Cloud Console → YouTube Data API → the "YouTube API Services audit and quota extension" form |
 | Instagram | Works. Needs an Instagram **Business or Creator** account linked to a **Facebook Page** |
 | Facebook | Works. Posts Reels to that Page. Meta caps it at 30 API Reels per Page per day |
-| TikTok | Manual. Until TikTok approves an app, API posts can only be private and only to private accounts |
+| TikTok | **Inbox mode** (default, works now): the clip lands in your TikTok app as a draft. Tap the notification, paste the caption, post. It's then found and logged automatically. **Direct mode**: fully automatic, but only public once TikTok audits your app |
 | X | Manual. Posting through its API is a paid tier |
+
+### TikTok: inbox or direct
+
+TikTok only lets unaudited apps post **privately** (and only to private accounts), so there are
+two modes, set under `publish: tiktok: mode:` in `config.yaml`:
+
+- **`inbox` (default):** each approved clip is uploaded to your TikTok app's inbox as a draft.
+  1. You get a notification.
+  2. On the review page, press **Copy** on the TikTok caption.
+  3. Open the draft in TikTok, paste the caption, and post.
+  4. The next `publish.bat` or `stats` run finds the post (it matches the caption, or the only new
+     video if you rewrote the caption), logs its link, and starts tracking its views. Pasting the link
+     yourself also works.
+
+  TikTok allows **at most 5 pending drafts per 24h**, so `daily_max` is 5.
+- **`direct`:** posts straight to your profile with the caption, no app step. Switch to it once
+  TikTok has approved your app's Content Posting **audit** (apply in the TikTok developer portal).
+  Until then, posts are forced to private.
+
+Both modes need posting permission on your TikTok connection, so run
+`python -m clipfarm connect tiktok` again after changing the mode (or if you connected TikTok
+for stats before this was added).
 
 ### One-time setup
 

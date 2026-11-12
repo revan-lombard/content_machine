@@ -236,7 +236,7 @@ def test_dry_run_posts_nothing(setup):
     con, cfg, clip, sf = setup
     clip("a1")
     fc = FakeClients()
-    res = run(cfg, con, fc, sf, platforms=["youtube", "tiktok"], dry_run=True)
+    res = run(cfg, con, fc, sf, platforms=["youtube", "x"], dry_run=True)
     assert fc.posted == [] and res[0]["would_post"] and "manual" in res[1]["skipped"]
     assert con.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 0
 

@@ -221,8 +221,9 @@ def _connect(cfg: dict, a) -> None:
         if not (t.get("client_key") and t.get("client_secret")):
             raise SystemExit("Add tiktok client_key and client_secret to secrets.yaml first "
                              "(steps in secrets.example.yaml)")
+        mode = (cfg["publish"].get("tiktok") or {}).get("mode", "inbox")
         tiktok_api.connect(t["client_key"], t["client_secret"], tokens / "tiktok.json",
-                           port=int(cfg["tiktok"]["port"]))
+                           port=int(cfg["tiktok"]["port"]), scopes=tiktok_api.scopes_for(mode))
         return
     if a.platform == "youtube":
         y = sec.get("youtube_oauth") or {}
@@ -247,10 +248,16 @@ def _publish(cfg: dict, a) -> None:
     last_stats = 0.0
     while True:
         with pipeline.db() as con:
+            n = publish.claim_tiktok(cfg, con, config.ROOT)
+            if n:
+                print(f"  tiktok     logged {n} draft(s) you posted from the app")
             for r in publish.run(cfg, con, config.ROOT, platforms=a.platform, dry_run=a.dry_run):
                 p = r["platform"].ljust(10)
                 if "url" in r:
                     print(f"  {p} posted {r['clip']} -> {r['url']}")
+                elif r.get("inbox"):
+                    print(f"  {p} sent {r['clip']} to your TikTok inbox - open TikTok, paste the caption "
+                          f"from the review page, post")
                 elif r.get("would_post"):
                     print(f"  {p} would post {r['clip']}")
                 elif "error" in r:
@@ -293,6 +300,7 @@ def _refresh_stats(cfg: dict) -> None:
             stats.fetch_youtube(con)
             _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
             _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
+            publish.claim_tiktok(cfg, con, config.ROOT)
             _print_ig(stats.fetch_tiktok_stats(cfg, con, config.ROOT), "TikTok")
             _print_ig(stats.fetch_x_stats(cfg, con, config.ROOT), "X")
     except Exception as e:  # never let stats stop the publisher
@@ -308,6 +316,9 @@ def _stats(cfg: dict) -> None:
         from . import publish
         _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
         _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
+        n = publish.claim_tiktok(cfg, con, config.ROOT)
+        if n:
+            print(f"TikTok: logged {n} inbox draft(s) you posted from the app")
         _print_ig(stats.fetch_tiktok_stats(cfg, con, config.ROOT), "TikTok")
         _print_ig(stats.fetch_x_stats(cfg, con, config.ROOT), "X")
         todo = tracker.todo(con, exp.get("score_hours", 48))

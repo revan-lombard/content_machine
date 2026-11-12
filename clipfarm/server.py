@@ -87,6 +87,7 @@ def review_page(con, show_all: bool, auto: list[str] | None = None) -> bytes:
     posts: dict[str, dict] = {}
     for p in con.execute("SELECT * FROM posts"):
         posts.setdefault(p["clip_id"], {})[p["platform"]] = p
+    pending = {(r["clip_id"], r["platform"]) for r in con.execute("SELECT clip_id, platform FROM pending_posts")}
     errors: dict[tuple, str] = {}
     for e in con.execute("SELECT clip_id, platform, error FROM publish_attempts ORDER BY at"):
         errors[(e["clip_id"], e["platform"])] = e["error"]
@@ -116,6 +117,11 @@ def review_page(con, show_all: bool, auto: list[str] | None = None) -> bytes:
             if plat in done:
                 act = f'<span class="done">Posted · <a href="{E(done[plat]["url"])}" target="_blank" rel="noopener">link</a></span>'
                 copy = ""
+            elif (c["id"], plat) in pending:
+                # TikTok inbox draft: you post it from the app; it's logged automatically after
+                act = (f'<span style="display:flex;gap:6px;align-items:center"><span class="done">In your TikTok '
+                       f'inbox: copy the caption, post it in the app</span><input placeholder="or paste link">'
+                       f'<button class="ghost" onclick="posted(this,{cid},\'{plat}\')">Posted</button></span>')
             elif plat in auto and status == "approved":
                 act = (f'<span class="done" title="{E(err or "")}">'
                        f'{"Auto-post failed, retrying: " + E(err[:80]) if err else "Queued for auto-post"}</span>')

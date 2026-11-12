@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS clips (
 CREATE TABLE IF NOT EXISTS posts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id TEXT REFERENCES clips(id), platform TEXT,
   url TEXT, posted_at TEXT, UNIQUE(clip_id, platform));
+CREATE TABLE IF NOT EXISTS pending_posts (
+  clip_id TEXT, platform TEXT, ref TEXT, sent_at TEXT, caption TEXT, PRIMARY KEY (clip_id, platform));
 CREATE TABLE IF NOT EXISTS publish_attempts (
   clip_id TEXT, platform TEXT, at TEXT, error TEXT);
 CREATE TABLE IF NOT EXISTS stats (
@@ -89,6 +91,8 @@ def record_post(con, clip_id: str, platform: str, url: str, posted_at: str | Non
                    ON CONFLICT(clip_id, platform) DO UPDATE SET url=excluded.url,
                    external_id=COALESCE(excluded.external_id, posts.external_id)""",
                 (clip_id, platform, url.strip(), posted_at or now_iso(), external_id))
+    # a draft sent to the TikTok inbox is now a real post
+    con.execute("DELETE FROM pending_posts WHERE clip_id=? AND platform=?", (clip_id, platform))
     con.commit()
     return con.execute("SELECT id FROM posts WHERE clip_id=? AND platform=?", (clip_id, platform)).fetchone()[0]
 

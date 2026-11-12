@@ -16,10 +16,10 @@ from pathlib import Path
 
 import yaml
 
-from . import meta_api, net, sources, tracker, youtube_api
+from . import meta_api, net, sources, tiktok_api, tracker, youtube_api
 from .config import ROOT
 
-AUTO = ["youtube", "instagram", "facebook"]
+AUTO = ["youtube", "instagram", "facebook", "tiktok"]
 MAX_ATTEMPTS = 3
 
 
@@ -55,6 +55,17 @@ class Clients:
             if platform == "instagram" and not meta_api.load(t / "meta.json").get("ig_user_id"):
                 return "no Instagram account is linked to the connected Facebook Page"
             return None
+        if platform == "tiktok":
+            k = self.sec.get("tiktok") or {}
+            if not (k.get("client_key") and k.get("client_secret")):
+                return "add tiktok client_key/client_secret to secrets.yaml"
+            mode = (self.cfg["publish"].get("tiktok") or {}).get("mode", "inbox")
+            scope = tiktok_api.POST_SCOPES.get(mode)
+            if not scope:
+                return f"publish.tiktok.mode must be inbox or direct, not '{mode}'"
+            if not tiktok_api.has_scope(t / "tiktok.json", scope):
+                return f"run: python -m clipfarm connect tiktok  (to grant {scope})"
+            return None
         return "not supported for auto-posting"
 
     def post(self, platform: str, video: Path, texts: dict, tags: list[str]) -> tuple[str, str]:
@@ -64,6 +75,13 @@ class Clients:
             tok = youtube_api.access_token(y["client_id"], y["client_secret"], t / "youtube.json")
             return youtube_api.upload(tok, video, texts["youtube_title"], texts["youtube_description"], tags,
                                       self.cfg["publish"]["youtube"].get("privacy", "public"))
+        if platform == "tiktok":
+            k = self.sec["tiktok"]
+            tok = tiktok_api.access_token(k["client_key"], k["client_secret"], t / "tiktok.json")
+            tc = self.cfg["publish"].get("tiktok") or {}
+            if tc.get("mode", "inbox") == "direct":
+                return tiktok_api.direct_post(tok, video, texts["tiktok"], tc.get("privacy", "PUBLIC_TO_EVERYONE"))
+            return tiktok_api.send_to_inbox(tok, video), None  # None = a draft, not a post yet
         conf = meta_api.load(t / "meta.json")
         if platform == "instagram":
             return meta_api.post_instagram(conf, video, texts["instagram"], self.ver)
@@ -94,8 +112,9 @@ def queue(con, platform: str) -> list:
         SELECT c.* FROM clips c
         WHERE c.status = 'approved'
           AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.clip_id = c.id AND p.platform = ?)
+          AND NOT EXISTS (SELECT 1 FROM pending_posts q WHERE q.clip_id = c.id AND q.platform = ?)
           AND (SELECT COUNT(*) FROM publish_attempts a WHERE a.clip_id = c.id AND a.platform = ?) < ?
-        ORDER BY c.created""", (platform, platform, MAX_ATTEMPTS)).fetchall()
+        ORDER BY c.created""", (platform, platform, platform, MAX_ATTEMPTS)).fetchall()
 
 
 def run(cfg: dict, con, root: Path, clients=None, platforms: list[str] | None = None,
@@ -118,9 +137,13 @@ def run(cfg: dict, con, root: Path, clients=None, platforms: list[str] | None = 
         if not (lo <= local_hour < hi):
             results.append({"platform": platform, "skipped": f"outside posting hours {lo}:00-{hi}:00"})
             continue
-        recent = [r["posted_at"] for r in con.execute(
+        since = _iso(now - timedelta(hours=24))
+        recent = [r[0] for r in con.execute(
             "SELECT posted_at FROM posts WHERE platform=? AND posted_at >= ?",
-            (platform, _iso(now - timedelta(hours=24))))]
+            (platform, since))]
+        # TikTok inbox drafts count too (TikTok allows at most 5 pending drafts per 24h)
+        recent += [r[0] for r in con.execute(
+            "SELECT sent_at FROM pending_posts WHERE platform=? AND sent_at >= ?", (platform, since))]
         cap = int((pub.get(platform) or {}).get("daily_max", 5))
         if len(recent) >= cap:
             results.append({"platform": platform, "skipped": f"daily max {cap} reached"})
@@ -153,8 +176,14 @@ def run(cfg: dict, con, root: Path, clients=None, platforms: list[str] | None = 
                 con.commit()
                 results.append({"platform": platform, "clip": clip["id"], "error": str(e)[:300]})
                 break  # don't hammer a platform that's failing; next run retries
-            tracker.record_post(con, clip["id"], platform, url, posted_at=_iso(now), external_id=ext_id)
-            results.append({"platform": platform, "clip": clip["id"], "url": url})
+            if url is None:  # sent to the TikTok inbox: you finish it in the app
+                con.execute("INSERT OR REPLACE INTO pending_posts VALUES (?,?,?,?,?)",
+                            (clip["id"], platform, ext_id, _iso(now), _platform_text(meta)["tiktok"]))
+                con.commit()
+                results.append({"platform": platform, "clip": clip["id"], "inbox": True})
+            else:
+                tracker.record_post(con, clip["id"], platform, url, posted_at=_iso(now), external_id=ext_id)
+                results.append({"platform": platform, "clip": clip["id"], "url": url})
             posted = True
             break
         if not posted and not any(r.get("platform") == platform for r in results):
@@ -242,3 +271,51 @@ def fetch_facebook_stats(cfg: dict, con, root: Path, days: int = 30, now: dateti
         return {p["id"]: meta_api.facebook_video_id(p["url"]) for p in missing}
 
     return _fetch_meta_stats(cfg, con, root, "facebook", resolve, meta_api.facebook_stats, days, now)
+
+
+
+def _norm(text: str) -> str:
+    """Caption text for matching: no hashtags/mentions/punctuation, lowercase, single spaces."""
+    import re
+    t = re.sub(r"[#@]\w+", " ", text or "")
+    t = re.sub(r"[^\w\s]", " ", t.lower())
+    return " ".join(t.split())
+
+
+def claim_tiktok(cfg: dict, con, root: Path, now: datetime | None = None, list_fn=None) -> int:
+    """Find TikTok inbox drafts you've since posted from the app, and log them as posts (with their
+    link) so their stats are tracked. Matches on the caption you pasted; if you edited it, a lone
+    new video posted after a lone pending draft is matched too. Returns how many were logged."""
+    pend = con.execute("SELECT * FROM pending_posts WHERE platform='tiktok' ORDER BY sent_at").fetchall()
+    if not pend:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    to_ts = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    since = min(to_ts(p["sent_at"]) for p in pend) - 60
+    if list_fn is None:
+        k = _secrets().get("tiktok") or {}
+        try:
+            tok = tiktok_api.access_token(k["client_key"], k["client_secret"], token_dir(root) / "tiktok.json")
+            vids = tiktok_api.list_videos(tok, since)
+        except (net.HttpError, RuntimeError, KeyError) as e:
+            print(f"  TikTok: couldn't check for posted drafts: {str(e)[:150]}")
+            return 0
+    else:
+        vids = list_fn(since)
+    known = {r[0] for r in con.execute("SELECT external_id FROM posts WHERE platform='tiktok'")}
+    vids = sorted((v for v in vids if str(v["id"]) not in known), key=lambda v: v.get("create_time", 0))
+    logged = 0
+    for p in pend:
+        want = _norm(p["caption"])[:40]
+        cands = [v for v in vids if v.get("create_time", 0) >= to_ts(p["sent_at"]) - 60]
+        hit = next((v for v in cands if want and want in _norm(v.get("video_description") or v.get("title") or "")), None)
+        if hit is None and len(pend) == 1 and len(cands) == 1:
+            hit = cands[0]
+        if hit is None:
+            continue
+        url = hit.get("share_url") or f"https://www.tiktok.com/video/{hit['id']}"
+        posted = datetime.fromtimestamp(hit.get("create_time", now.timestamp()), timezone.utc)
+        tracker.record_post(con, p["clip_id"], "tiktok", url, posted_at=_iso(posted), external_id=str(hit["id"]))
+        vids.remove(hit)
+        logged += 1
+    return logged

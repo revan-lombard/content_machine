@@ -99,9 +99,9 @@ experiments:
   explore: 0.2
   score_hours: 48   # a post is scored on its views this many hours after posting
 
-# Auto-posting of clips you APPROVED on the review page. TikTok and X stay manual.
+# Auto-posting of clips you APPROVED on the review page. X stays manual.
 publish:
-  platforms: [youtube, instagram, facebook]
+  platforms: [youtube, instagram, facebook, tiktok]
   min_gap_minutes: 90       # per platform: space posts out instead of dumping them at once
   hours: [9, 23]            # only post between these local hours
   meta_api_version: v23.0   # Meta Graph API version; bump when Meta retires it
@@ -112,6 +112,14 @@ publish:
     daily_max: 10
   facebook:
     daily_max: 10           # Meta's hard limit is 30 API Reels per Page per 24h
+  tiktok:
+    # inbox:  the clip lands in your TikTok app as a draft; tap the notification, paste the
+    #         caption (copy button on the review page), post. Works without TikTok's audit.
+    # direct: posts straight to your profile. Only public after TikTok audits your app -
+    #         before that it can only post privately, and only to a private account.
+    mode: inbox
+    daily_max: 5            # TikTok allows at most 5 pending inbox drafts per 24h
+    privacy: PUBLIC_TO_EVERYONE   # direct mode only
 
 # TikTok stats sign-in. Register http://localhost:<port>/callback/ as a redirect URI in your app.
 tiktok:
