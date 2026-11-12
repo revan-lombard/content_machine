@@ -237,7 +237,8 @@ def test_dry_run_posts_nothing(setup):
     clip("a1")
     fc = FakeClients()
     res = run(cfg, con, fc, sf, platforms=["youtube", "x"], dry_run=True)
-    assert fc.posted == [] and res[0]["would_post"] and "manual" in res[1]["skipped"]
+    assert fc.posted == [] and res[0]["would_post"]
+    assert "allow only" in res[1]["skipped"]   # this campaign doesn't allow X
     assert con.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 0
 
 

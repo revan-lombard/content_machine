@@ -221,8 +221,8 @@ finishes, and adds the clip to the review page. Approve it there to auto-post it
 
 **Approve** a clip on the review page and it gets posted to **YouTube Shorts, Instagram
 Reels and Facebook Reels** automatically, with the captions, credit and hashtags already
-written. **TikTok** is nearly automatic (see below). **X stays manual** (copy the caption,
-post, paste the link back).
+written. **TikTok** is nearly automatic (see below). **X** is automatic but **paid per post**
+(see below).
 
 | Platform | Status |
 |---|---|
@@ -230,7 +230,26 @@ post, paste the link back).
 | Instagram | Works. Needs an Instagram **Business or Creator** account linked to a **Facebook Page** |
 | Facebook | Works. Posts Reels to that Page. Meta caps it at 30 API Reels per Page per day |
 | TikTok | **Inbox mode** (default, works now): the clip lands in your TikTok app as a draft. Tap the notification, paste the caption, post. It's then found and logged automatically. **Direct mode**: fully automatic, but only public once TikTok audits your app |
-| X | Manual. Posting through its API is a paid tier |
+| X | Works, but **X charges about $0.015 per post** (2026). Links in the caption would raise that to about $0.20, so they're removed automatically. Capped by `x.monthly_post_limit` (default 150, about $2.25) |
+
+### X: paid per post
+
+Since 2026, X bills API use per call: about **$0.015 per post**, or **$0.20 if the post has a
+link**. So:
+
+- **No links:** links are stripped from X captions automatically. The streamer's @ credit and
+  hashtags stay.
+- **Monthly limit:** posting stops at `x.monthly_post_limit` (default 150) posts a month, and
+  `daily_max` is 8 a day.
+- **Cheaper stats:** once you're signed in for posting, your posts' stats are read as you,
+  which X bills at its lower "owned reads" rate. Without sign-in, the app token is used.
+
+Setup:
+1. In your X developer app, open **User authentication settings** → **OAuth 2.0**, choose
+   **Read and write**, and set the callback URL to `http://127.0.0.1:8898/callback`.
+2. Put the OAuth 2.0 **Client ID** (and **Client Secret**, if shown) in `secrets.yaml`.
+3. Run `python -m clipfarm connect x`.
+4. Remove `x` from `publish: platforms:` in `config.yaml` if you'd rather not pay for X posting.
 
 ### TikTok: inbox or direct
 
@@ -388,7 +407,7 @@ python -m clipfarm facecam NAME               frame + grid to find the face cam 
 python -m clipfarm review                     review/post page + performance dashboard
 python -m clipfarm stats                      fetch YouTube stats, print the format leaderboard
 python -m clipfarm post CLIP_ID PLATFORM URL  log a post without the web page
-python -m clipfarm connect youtube|meta|tiktok   one-time sign-in (posting / stats)
+python -m clipfarm connect youtube|meta|tiktok|x   one-time sign-in (posting / stats)
 python -m clipfarm approve CLIP_ID... [--reject]
 python -m clipfarm publish [--dry-run] [--watch] [--platform youtube]
 python -m clipfarm react find WORDS... --sources NAME...   draft a multi-streamer plan

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS clips (
 CREATE TABLE IF NOT EXISTS posts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id TEXT REFERENCES clips(id), platform TEXT,
   url TEXT, posted_at TEXT, UNIQUE(clip_id, platform));
+CREATE TABLE IF NOT EXISTS api_spend (
+  platform TEXT, at TEXT, kind TEXT);
 CREATE TABLE IF NOT EXISTS pending_posts (
   clip_id TEXT, platform TEXT, ref TEXT, sent_at TEXT, caption TEXT, PRIMARY KEY (clip_id, platform));
 CREATE TABLE IF NOT EXISTS publish_attempts (

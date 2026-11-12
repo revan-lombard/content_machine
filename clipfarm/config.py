@@ -30,13 +30,14 @@ DEFAULTS: dict = {
                     "formats": ["payoff_first", "straight", "beat_story", "loop", "countdown", "multi_react"],
                     "hook_styles": ["viewer_title", "question", "curiosity", "ai"],
                     "min_scored": 15, "explore": 0.2, "score_hours": 48},
-    "publish": {"platforms": ["youtube", "instagram", "facebook", "tiktok"], "min_gap_minutes": 90,
+    "publish": {"platforms": ["youtube", "instagram", "facebook", "tiktok", "x"], "min_gap_minutes": 90,
                 "hours": [9, 23], "meta_api_version": "v23.0",
                 "youtube": {"daily_max": 5, "privacy": "public"},
                 "instagram": {"daily_max": 10}, "facebook": {"daily_max": 10},
-                "tiktok": {"daily_max": 5, "mode": "inbox", "privacy": "PUBLIC_TO_EVERYONE"}},
+                "tiktok": {"daily_max": 5, "mode": "inbox", "privacy": "PUBLIC_TO_EVERYONE"},
+                "x": {"daily_max": 8}},
     "tiktok": {"port": 8899},
-    "x": {"checkpoints": [48, 168], "monthly_read_limit": 1000},
+    "x": {"checkpoints": [48, 168], "monthly_read_limit": 1000, "monthly_post_limit": 150, "port": 8898},
     "hashtags": ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"],
 }
 

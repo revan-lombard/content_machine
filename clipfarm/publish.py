@@ -16,10 +16,10 @@ from pathlib import Path
 
 import yaml
 
-from . import meta_api, net, sources, tiktok_api, tracker, youtube_api
+from . import meta_api, net, sources, tiktok_api, tracker, x_api, youtube_api
 from .config import ROOT
 
-AUTO = ["youtube", "instagram", "facebook", "tiktok"]
+AUTO = ["youtube", "instagram", "facebook", "tiktok", "x"]
 MAX_ATTEMPTS = 3
 
 
@@ -66,6 +66,13 @@ class Clients:
             if not tiktok_api.has_scope(t / "tiktok.json", scope):
                 return f"run: python -m clipfarm connect tiktok  (to grant {scope})"
             return None
+        if platform == "x":
+            k = self.sec.get("x") or {}
+            if not k.get("client_id"):
+                return "add x client_id (and client_secret) to secrets.yaml"
+            if not x_api.has_scopes(t / "x.json"):
+                return "run: python -m clipfarm connect x"
+            return None
         return "not supported for auto-posting"
 
     def post(self, platform: str, video: Path, texts: dict, tags: list[str]) -> tuple[str, str]:
@@ -75,6 +82,10 @@ class Clients:
             tok = youtube_api.access_token(y["client_id"], y["client_secret"], t / "youtube.json")
             return youtube_api.upload(tok, video, texts["youtube_title"], texts["youtube_description"], tags,
                                       self.cfg["publish"]["youtube"].get("privacy", "public"))
+        if platform == "x":
+            k = self.sec["x"]
+            tok = x_api.access_token(k["client_id"], k.get("client_secret") or None, t / "x.json")
+            return x_api.post(tok, video, texts["x"])
         if platform == "tiktok":
             k = self.sec["tiktok"]
             tok = tiktok_api.access_token(k["client_key"], k["client_secret"], t / "tiktok.json")
@@ -153,6 +164,14 @@ def run(cfg: dict, con, root: Path, clients=None, platforms: list[str] | None = 
                                 for r in recent) < gap:
             results.append({"platform": platform, "skipped": "waiting for the gap between posts"})
             continue
+        if platform == "x":  # X bills per post: stop at the monthly limit
+            limit = int((cfg.get("x") or {}).get("monthly_post_limit", 150))
+            used = con.execute("SELECT COUNT(*) FROM api_spend WHERE platform='x' AND kind='post' "
+                               "AND substr(at,1,7)=?", (now.strftime("%Y-%m"),)).fetchone()[0]
+            if used >= limit:
+                results.append({"platform": platform, "skipped": f"monthly X post limit {limit} reached "
+                                                                 "(x.monthly_post_limit in config.yaml)"})
+                continue
         posted = False
         for clip in queue(con, platform):
             d = Path(clip["path"])
@@ -183,6 +202,9 @@ def run(cfg: dict, con, root: Path, clients=None, platforms: list[str] | None = 
                 results.append({"platform": platform, "clip": clip["id"], "inbox": True})
             else:
                 tracker.record_post(con, clip["id"], platform, url, posted_at=_iso(now), external_id=ext_id)
+                if platform == "x":
+                    con.execute("INSERT INTO api_spend VALUES ('x', ?, 'post')", (_iso(now),))
+                    con.commit()
                 results.append({"platform": platform, "clip": clip["id"], "url": url})
             posted = True
             break

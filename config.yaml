@@ -99,9 +99,9 @@ experiments:
   explore: 0.2
   score_hours: 48   # a post is scored on its views this many hours after posting
 
-# Auto-posting of clips you APPROVED on the review page. X stays manual.
+# Auto-posting of clips you APPROVED on the review page.
 publish:
-  platforms: [youtube, instagram, facebook, tiktok]
+  platforms: [youtube, instagram, facebook, tiktok, x]
   min_gap_minutes: 90       # per platform: space posts out instead of dumping them at once
   hours: [9, 23]            # only post between these local hours
   meta_api_version: v23.0   # Meta Graph API version; bump when Meta retires it
@@ -120,6 +120,8 @@ publish:
     mode: inbox
     daily_max: 5            # TikTok allows at most 5 pending inbox drafts per 24h
     privacy: PUBLIC_TO_EVERYONE   # direct mode only
+  x:
+    daily_max: 8            # X bills each post (~$0.015 in 2026); see x.monthly_post_limit
 
 # TikTok stats sign-in. Register http://localhost:<port>/callback/ as a redirect URI in your app.
 tiktok:
@@ -130,5 +132,7 @@ tiktok:
 x:
   checkpoints: [48, 168]
   monthly_read_limit: 1000   # ~ $5 at 2026 prices
+  monthly_post_limit: 150    # ~ $2.25 - links are stripped from X captions (they cost ~13x more)
+  port: 8898                 # sign-in callback: register http://127.0.0.1:8898/callback in your X app
 
 hashtags: ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"]

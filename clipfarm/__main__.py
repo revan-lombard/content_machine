@@ -67,7 +67,7 @@ def main() -> None:
     p.add_argument("url")
 
     p = sub.add_parser("connect", help="one-time sign-in for auto-posting: youtube or meta")
-    p.add_argument("platform", choices=["youtube", "meta", "tiktok"])
+    p.add_argument("platform", choices=["youtube", "meta", "tiktok", "x"])
     p.add_argument("--token", help="meta: a user access token from Graph API Explorer")
     p.add_argument("--page", help="meta: which Facebook Page, if you manage several")
 
@@ -75,8 +75,8 @@ def main() -> None:
     p.add_argument("clip_ids", nargs="+")
     p.add_argument("--reject", action="store_true")
 
-    p = sub.add_parser("publish", help="post approved clips to YouTube / Instagram / Facebook")
-    p.add_argument("--platform", action="append", choices=["youtube", "instagram", "facebook"])
+    p = sub.add_parser("publish", help="post approved clips to YouTube / Instagram / Facebook / TikTok / X")
+    p.add_argument("--platform", action="append", choices=["youtube", "instagram", "facebook", "tiktok", "x"])
     p.add_argument("--dry-run", action="store_true", help="show what would be posted")
     p.add_argument("--watch", action="store_true", help="keep running, checking every 10 minutes")
 
@@ -215,6 +215,13 @@ def _connect(cfg: dict, a) -> None:
     from . import meta_api, publish, youtube_api
     sec = publish._secrets()
     tokens = publish.token_dir(config.ROOT)
+    if a.platform == "x":
+        from . import x_api
+        k = sec.get("x") or {}
+        if not k.get("client_id"):
+            raise SystemExit("Add x client_id (and client_secret) to secrets.yaml first (steps in secrets.example.yaml)")
+        x_api.connect(k["client_id"], k.get("client_secret") or None, tokens / "x.json", port=int(cfg["x"]["port"]))
+        return
     if a.platform == "tiktok":
         from . import tiktok_api
         t = sec.get("tiktok") or {}

@@ -135,7 +135,16 @@ def fetch_x_stats(cfg: dict, con, root, days: int = 30, now=None) -> dict:
     from . import x_api
     from .publish import _iso, _secrets
     res = {"updated": 0, "matched": 0, "unmatched": 0, "failed": 0, "capped": 0}
-    bearer = (_secrets().get("x") or {}).get("bearer_token")
+    xs = _secrets().get("x") or {}
+    bearer = xs.get("bearer_token")
+    from .publish import token_dir
+    user_tok = token_dir(root) / "x.json"
+    if xs.get("client_id") and user_tok.exists():
+        # signed in for posting: read your own posts as yourself (X bills "owned reads" lower)
+        try:
+            bearer = x_api.access_token(xs["client_id"], xs.get("client_secret") or None, user_tok)
+        except (net.HttpError, RuntimeError, KeyError) as e:
+            print(f"  X: sign-in token refresh failed, using the app token: {str(e)[:120]}")
     if not bearer:
         return res
     xc = cfg.get("x") or {}
