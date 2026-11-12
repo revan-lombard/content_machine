@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clip Farm Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one narrow phone column of phases; each phase is a foldable card with tickable steps,
+   copyable commands and a "done when" milestone; a sticky progress bar stays on top. */
+:root {
+  color-scheme: light;
+  --bg: #eef2f4;
+  --surface: #ffffff;
+  --ink: #14212b;
+  --muted: #5b6a75;
+  --line: #d6dee3;
+  --accent: #0b7a68;
+  --accent-soft: #d3ece6;
+  --accent-ink: #ffffff;
+  --urgent: #a34e00;
+  --urgent-soft: #fbe8d3;
+  --code-bg: #e5ebee;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f171c; --surface: #172229; --ink: #e4ecef; --muted: #93a3ad; --line: #2a3a43;
+    --accent: #3cc2a6; --accent-soft: #163a35; --accent-ink: #062621;
+    --urgent: #f0a65a; --urgent-soft: #3a2a17; --code-bg: #0d1418; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f171c; --surface: #172229; --ink: #e4ecef; --muted: #93a3ad; --line: #2a3a43;
+  --accent: #3cc2a6; --accent-soft: #163a35; --accent-ink: #062621;
+  --urgent: #f0a65a; --urgent-soft: #3a2a17; --code-bg: #0d1418; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+a { color: var(--accent); }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.75rem; line-height: 1.15; letter-spacing: -0.01em; }
+.intro { display: flex; flex-direction: column; gap: 10px; padding-top: 22px; }
+.intro p { margin: 0; color: var(--muted); }
+.launch { background: var(--urgent-soft); color: var(--urgent); border-radius: 10px; padding: 10px 12px; font-weight: 600; font-size: 0.92rem; }
+
+/* sticky progress */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 0.85rem; color: var(--muted); }
+.bar-row b { color: var(--ink); font-family: var(--display); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.fill { height: 100%; width: 0; background: var(--accent); border-radius: 0 4px 4px 0; transition: width .3s ease; }
+.sync { font-size: 0.78rem; }
+
+/* phases */
+details.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+details.phase > summary { list-style: none; cursor: pointer; padding: 14px 14px 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
+details.phase > summary::-webkit-details-marker { display: none; }
+.ph-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.ph-title { font-family: var(--display); font-size: 1.15rem; font-weight: 700; grid-column: 1; }
+.ph-meta { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ph-count { grid-row: 1 / 3; grid-column: 2; font-family: var(--display); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: right; color: var(--muted); }
+details.phase.complete .ph-count { color: var(--accent); }
+.mini { flex: 1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; max-width: 140px; }
+.mini i { display: block; height: 100%; background: var(--accent); }
+.chev { transition: transform .2s; color: var(--muted); }
+details[open] .chev { transform: rotate(90deg); }
+.ph-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 4px; }
+.ph-intro { color: var(--muted); font-size: 0.9rem; margin: 0 0 6px; }
+.sub { font-family: var(--display); font-weight: 700; font-size: 0.95rem; margin: 12px 0 2px; }
+
+/* steps */
+.step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.step:first-of-type { border-top: 0; }
+.step input { appearance: none; width: 24px; height: 24px; margin: 1px 0 0; border: 2px solid var(--muted); border-radius: 6px; display: grid; place-items: center; cursor: pointer; background: var(--surface); }
+.step input:checked { background: var(--accent); border-color: var(--accent); }
+.step input:checked::after { content: ""; width: 6px; height: 11px; border: solid var(--accent-ink); border-width: 0 2.5px 2.5px 0; transform: translateY(-1px) rotate(45deg); }
+.step input:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.step-main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.step label { cursor: pointer; }
+.step.done label { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+.note { font-size: 0.84rem; color: var(--muted); }
+.cmd { display: flex; align-items: stretch; background: var(--code-bg); border-radius: 8px; overflow: hidden; }
+.cmd code { flex: 1; min-width: 0; font: 0.82rem/1.45 var(--mono); padding: 8px 10px; overflow-x: auto; white-space: pre; }
+.cmd button, .ghost { border: 0; background: transparent; color: var(--accent); font: 600 0.8rem var(--body); padding: 0 12px; cursor: pointer; }
+.cmd button { border-left: 1px solid var(--line); }
+.milestone { margin-top: 8px; background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+.milestone input { appearance: none; width: 24px; height: 24px; margin: 1px 0 0; border: 2px solid var(--accent); border-radius: 50%; display: grid; place-items: center; cursor: pointer; background: var(--surface); }
+.milestone input:checked { background: var(--accent); }
+.milestone input:checked::after { content: ""; width: 6px; height: 11px; border: solid var(--accent-ink); border-width: 0 2.5px 2.5px 0; transform: translateY(-1px) rotate(45deg); }
+.milestone label { font-weight: 600; cursor: pointer; }
+.milestone .note { font-weight: 400; }
+
+/* routine + help */
+.routine { display: flex; flex-direction: column; }
+.r-row { display: grid; grid-template-columns: 6.2em 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
+.r-row:first-child { border-top: 0; }
+.r-when { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; padding-top: 2px; }
+.r-what b { font-family: var(--mono); font-size: 0.85rem; font-weight: 500; }
+.help dt { font-weight: 600; margin-top: 10px; }
+.help dd { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 0.82rem; padding-top: 6px; }
+.reset-confirm { display: flex; gap: 8px; align-items: center; }
+.danger { background: var(--urgent); color: var(--surface); border: 0; border-radius: 6px; padding: 6px 10px; font: 600 0.8rem var(--body); cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .fill, .chev { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="intro">
+    <h1>Clip Farm Setup</h1>
+    <p>Everything from install to auto-posting, in order. Tick steps as you go: your progress is saved in this browser.</p>
+    <div class="launch" id="launch">GTA 6 launches 19 November. Aim to finish Phases 1–3 before then.</div>
+  </header>
+
+  <div class="bar" role="status" aria-live="polite">
+    <div class="bar-row"><span><b id="pct">0%</b> &nbsp;<span id="count">0 of 0 steps</span></span><span class="sync" id="sync">Saved in this browser</span></div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+  </div>
+
+  <div id="phases"></div>
+
+  <details class="phase" id="routine-card">
+    <summary><span class="ph-label">Every day after setup</span><span class="ph-title">Daily routine</span><span class="ph-count">≈30m</span><span class="ph-meta">What you do once it's running <span class="chev">›</span></span></summary>
+    <div class="ph-body">
+      <div class="routine">
+        <div class="r-row"><span class="r-when">Morning</span><span class="r-what"><b>twitch.bat</b> makes today's clips (or let Task Scheduler run it)</span></div>
+        <div class="r-row"><span class="r-when">Morning</span><span class="r-what"><b>review.bat</b>: watch each clip, Approve or Reject. About 1 min per clip</span></div>
+        <div class="r-row"><span class="r-when">All day</span><span class="r-what"><b>publish.bat</b> stays open and posts approved clips, spaced out</span></div>
+        <div class="r-row"><span class="r-when">TikTok ping</span><span class="r-what">Open the draft, paste the caption from the review page, post. About 15 sec</span></div>
+        <div class="r-row"><span class="r-when">Weekly</span><span class="r-what">Performance tab: see which formats and hooks win. The mix shifts by itself</span></div>
+      </div>
+    </div>
+  </details>
+
+  <details class="phase" id="help-card">
+    <summary><span class="ph-label">Troubleshooting</span><span class="ph-title">When something goes wrong</span><span class="ph-count">?</span><span class="ph-meta">Common first-day errors <span class="chev">›</span></span></summary>
+    <div class="ph-body">
+      <dl class="help">
+        <dt>"python is not recognized", or the Microsoft Store opens</dt><dd>Reinstall Python with "Add python.exe to PATH" ticked.</dd>
+        <dt>A .bat window flashes and closes</dt><dd>Run the same command inside shell.bat so you can read the error.</dd>
+        <dt>"Twitch API keys missing"</dt><dd>Fill in the twitch: section of secrets.yaml.</dd>
+        <dt>Your streamer shows [OFF]</dt><dd>Run <code>python -m clipfarm sources</code>: it lists exactly what's missing.</dd>
+        <dt>"run: python -m clipfarm connect …"</dt><dd>Run that command. A permission was added, or a sign-in expired.</dd>
+        <dt>"Auto-post failed, retrying: …" on the review page</dt><dd>The text says why. Paste it to Claude if it's unclear.</dd>
+        <dt>Anything else</dt><dd>Copy the full message and send it to Claude. Nothing has run against the live platforms yet, so expect a few first-day fixes.</dd>
+      </dl>
+    </div>
+  </details>
+
+  <div class="foot">
+    <span>Full guide: GETTING_STARTED.md in the project folder.</span>
+    <span id="reset-wrap"><button class="ghost" id="reset" type="button">Reset progress</button></span>
+  </div>
+</main>
+
+<script>
+const PHASES = [
+  { id: "p0", label: "Phase 0 · start today", title: "Start the slow things", time: "15m",
+    intro: "These take days or weeks to come through. Start them now and carry on while you wait.",
+    steps: [
+      { id: "perm", text: "Get permission to clip at least one streamer: join a GTA campaign, find a streamer's clipping program on Discord, or DM a smaller streamer and screenshot their yes.",
+        links: [["Content Rewards, search “GTA”", "https://contentrewards.com/c/discover"]], note: "Never pay to join a campaign: that's a scam." },
+      { id: "iglink", text: "Switch Instagram to a Creator or Business account and link it to a Facebook Page you own.", note: "Instagram app → Settings → Account type. Create the Page first if you need one." },
+      { id: "accounts", text: "Create the accounts you'll post from: YouTube channel, TikTok, Instagram, Facebook Page, and X if you want it. Use the same name everywhere." },
+    ],
+    done: { id: "p0done", text: "You have permission for at least one streamer", note: "A campaign link, a screenshot, or a public “anyone can clip me” post." } },
+  { id: "p1", label: "Phase 1", title: "Install on your PC", time: "20m",
+    steps: [
+      { id: "python", text: "Install Python 3.10 or newer. On the first screen, tick “Add python.exe to PATH”.", links: [["python.org/downloads", "https://www.python.org/downloads/"]] },
+      { id: "git", text: "Install Git with the default options.", links: [["git-scm.com/download/win", "https://git-scm.com/download/win"]] },
+      { id: "clone", text: "Open Command Prompt (Start → type cmd) and run these one at a time. Sign in to GitHub when the browser opens.",
+        cmds: ["cd %USERPROFILE%\\Documents", "git clone https://github.com/revan-lombard/content_machine.git"] },
+      { id: "setup", text: "Open Documents\\content_machine and double-click setup.bat.", note: "If it says ffmpeg was just installed, close it and run setup.bat again." },
+      { id: "shell", text: "Double-click shell.bat. Use this window for every command below." },
+    ],
+    done: { id: "p1done", text: "The command list appears", cmds: ["python -m clipfarm -h"], note: "…and the folder now contains secrets.yaml." } },
+  { id: "p2", label: "Phase 2", title: "Your first clips", time: "30m",
+    steps: [
+      { id: "twitchapp", text: "Create a Twitch app: any name, OAuth Redirect URL http://localhost, category Application Integration, client type Confidential.",
+        links: [["dev.twitch.tv/console/apps", "https://dev.twitch.tv/console/apps"]] },
+      { id: "twitchkeys", text: "Copy the Client ID, click New Secret, and paste both into secrets.yaml under twitch: (open it with Notepad)." },
+      { id: "source", text: "In sources.yaml, copy the example block and fill in name, login, permission type and proof. Then set enabled: true. For a Kick streamer, also add platform: kick.",
+        note: "Copy the campaign's credit, hashtags, max_length and platforms rules too." },
+      { id: "checksrc", text: "Check that your streamer shows [OK ].", cmds: ["python -m clipfarm sources"] },
+      { id: "firstrun", text: "Double-click twitch.bat. The first run downloads the caption model, so give it a few minutes." },
+      { id: "review", text: "Double-click review.bat. The review page opens in your browser." },
+    ],
+    done: { id: "p2done", text: "You can play your first clips on the review page", note: "“No moments found” means nobody made viewer clips of that stream. Try a bigger one: twitch.bat NAME --vod <id>." } },
+  { id: "p3", label: "Phase 3 · optional", title: "Make the clips look right", time: "20m",
+    steps: [
+      { id: "facecam", text: "Find the face cam box. Open the image it saves in the out folder: each square is 10%. Set facecam: [x, y, w, h] in sources.yaml.",
+        cmds: ["python -m clipfarm facecam NAME"] },
+      { id: "sfx", text: "Put free .wav sound effects in assets\\sfx: hook.wav, obstacle.wav, result.wav, rewind.wav." },
+      { id: "lmstudio", text: "Better hook text on your RX 580: install LM Studio, load an 8B Instruct model and start its local server. Then in config.yaml set llm provider: lmstudio and url: http://localhost:1234.",
+        links: [["lmstudio.ai", "https://lmstudio.ai"]] },
+      { id: "whisper", text: "Optional: GPU captions with whisper.cpp's Vulkan build. Set captions engine: whisper-cpp and the two paths in config.yaml." },
+      { id: "rerun", text: "Run twitch.bat again and compare on the review page." },
+    ],
+    done: { id: "p3done", text: "You'd happily post these clips as they are" } },
+  { id: "p4", label: "Phase 4", title: "Turn on auto-posting", time: "1–2h",
+    intro: "One platform at a time. After each one, check what would go out without posting anything:",
+    introCmd: "python -m clipfarm publish --dry-run",
+    groups: [
+      { title: "Instagram + Facebook", steps: [
+        { id: "metaapp", text: "Create a Meta app (type Business). Put its App ID and App Secret in secrets.yaml under meta:.", links: [["developers.facebook.com/apps", "https://developers.facebook.com/apps"]] },
+        { id: "metatoken", text: "In Graph API Explorer, pick your app, add the permissions below, and click Generate Access Token.",
+          cmds: ["pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic, instagram_content_publish, instagram_manage_insights, business_management, read_insights"],
+          links: [["Graph API Explorer", "https://developers.facebook.com/tools/explorer/"]] },
+        { id: "metaconnect", text: "Connect, pasting the token. It should name your Page and Instagram account.", cmds: ["python -m clipfarm connect meta --token PASTE_TOKEN"] },
+      ]},
+      { title: "YouTube", steps: [
+        { id: "gcp", text: "In Google Cloud, create a project and enable YouTube Data API v3.", links: [["console.cloud.google.com", "https://console.cloud.google.com"]] },
+        { id: "consent", text: "OAuth consent screen: choose External and add yourself as a test user." },
+        { id: "ytclient", text: "Credentials → Create credentials → OAuth client ID → Desktop app. Put both values in secrets.yaml under youtube_oauth:." },
+        { id: "ytconnect", text: "Connect.", cmds: ["python -m clipfarm connect youtube"] },
+        { id: "ytaudit", text: "Apply for the YouTube API audit (the “audit and quota extension” form). Until it's approved, uploads stay private." },
+      ]},
+      { title: "TikTok", steps: [
+        { id: "ttapp", text: "Create a TikTok app with Login Kit (Desktop, redirect http://localhost:8899/callback/) and Content Posting API. Scopes: user.info.basic, video.list, video.upload.",
+          links: [["developers.tiktok.com", "https://developers.tiktok.com"]] },
+        { id: "ttsandbox", text: "While the app is in Sandbox, add your TikTok account as a target user." },
+        { id: "ttkeys", text: "Put the Client key and Client secret in secrets.yaml under tiktok:, then connect.", cmds: ["python -m clipfarm connect tiktok"] },
+        { id: "ttinbox", text: "Clips arrive in TikTok as drafts. Tap the notification, paste the caption from the review page, and post." },
+      ]},
+      { title: "X · paid, about 1.5¢ per post", steps: [
+        { id: "xapp", text: "Sign up at developer.x.com, add credits under Billing, and create an app.", links: [["developer.x.com", "https://developer.x.com"]] },
+        { id: "xkeys", text: "Copy the Bearer Token into secrets.yaml under x:. Under OAuth 2.0, choose Read and write, set the callback to http://127.0.0.1:8898/callback, and copy the Client ID (and Secret)." },
+        { id: "xconnect", text: "Connect. (Not paying for X? Remove x from publish: platforms: in config.yaml.)", cmds: ["python -m clipfarm connect x"] },
+      ]},
+      { title: "Go live", steps: [
+        { id: "approve", text: "On the review page, Approve one clip." },
+        { id: "publishbat", text: "Double-click publish.bat and leave it open. It posts 90 minutes apart per platform, between 09:00 and 23:00." },
+        { id: "check", text: "Check each platform for the post." },
+      ]},
+    ],
+    done: { id: "p4done", text: "One approved clip shows up on every platform you set up", note: "On YouTube it's private until the audit is approved. On TikTok it's a draft until you post it." } },
+  { id: "p5", label: "Phase 5", title: "Performance tracking", time: "15m",
+    intro: "Instagram, Facebook, TikTok and X stats already work if you connected them in Phase 4.",
+    steps: [
+      { id: "ytkey", text: "YouTube stats: in the same Google Cloud project, go to Credentials → Create credentials → API key. Put it in secrets.yaml under youtube: api_key:." },
+      { id: "wait48", text: "Wait 48h after your first posts, then open review.bat → Performance." },
+      { id: "numbers", text: "Type in anything under “Enter numbers”. Those are usually short links (vm.tiktok.com, fb.watch), so log the full link next time." },
+    ],
+    done: { id: "p5done", text: "The Performance tab shows views, with (almost) nothing to type in" } },
+  { id: "p6", label: "Phase 6", title: "Make it run itself", time: "10m",
+    steps: [
+      { id: "sched", text: "Task Scheduler → Create Basic Task → Daily → Start a program → pick twitch.bat." },
+      { id: "startup", text: "Put publish.bat in your Startup folder so it starts with Windows.", cmds: ["shell:startup"], note: "Paste that into Win+R." },
+      { id: "backup", text: "Back up data\\tracker.db, secrets.yaml and sources.yaml somewhere safe. Never share secrets.yaml." },
+      { id: "update", text: "When new features are added, update, then run setup.bat once.", cmds: ["git pull"] },
+    ],
+    done: { id: "p6done", text: "Clips are waiting for you every morning" } },
+];
+
+// ---------- state ----------
+let done = {};
+let open = {};
+const LS_DONE = "clipfarm-setup-done", LS_OPEN = "clipfarm-setup-open";
+try { done = JSON.parse(localStorage.getItem(LS_DONE) || "{}") || {}; } catch (e) {}
+try { open = JSON.parse(localStorage.getItem(LS_OPEN) || "{}") || {}; } catch (e) {}
+
+const allIds = [];
+PHASES.forEach(p => { stepsOf(p).forEach(s => allIds.push(s.id)); allIds.push(p.done.id); });
+function stepsOf(p) { return p.steps || p.groups.flatMap(g => g.steps); }
+
+// ---------- render ----------
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function cmdHtml(c) { return `<div class="cmd"><code>${esc(c)}</code><button type="button" data-copy="${esc(c)}">Copy</button></div>`; }
+function stepHtml(s) {
+  const links = (s.links || []).map(([t, h]) => `<a href="${esc(h)}" target="_blank" rel="noopener">${esc(t)} ↗</a>`).join(" · ");
+  return `<div class="step" data-step="${s.id}">
+    <input type="checkbox" id="c-${s.id}" data-id="${s.id}">
+    <div class="step-main"><label for="c-${s.id}">${esc(s.text)}</label>
+      ${(s.cmds || []).map(cmdHtml).join("")}
+      ${links ? `<span class="note">${links}</span>` : ""}
+      ${s.note ? `<span class="note">${esc(s.note)}</span>` : ""}</div></div>`;
+}
+function phaseHtml(p) {
+  const body = p.steps ? p.steps.map(stepHtml).join("")
+    : p.groups.map(g => `<div class="sub">${esc(g.title)}</div>${g.steps.map(stepHtml).join("")}`).join("");
+  const d = p.done;
+  return `<details class="phase" id="${p.id}" data-phase="${p.id}">
+    <summary><span class="ph-label">${esc(p.label)}</span><span class="ph-title">${esc(p.title)}</span>
+      <span class="ph-count" id="cnt-${p.id}"></span>
+      <span class="ph-meta"><span>${esc(p.time)}</span><span class="mini"><i id="mini-${p.id}"></i></span><span class="chev">›</span></span></summary>
+    <div class="ph-body">
+      ${p.intro ? `<p class="ph-intro">${esc(p.intro)}</p>` : ""}${p.introCmd ? cmdHtml(p.introCmd) : ""}
+      ${body}
+      <div class="milestone"><input type="checkbox" id="c-${d.id}" data-id="${d.id}">
+        <div class="step-main"><label for="c-${d.id}">Done when: ${esc(d.text)}</label>
+        ${(d.cmds || []).map(cmdHtml).join("")}${d.note ? `<span class="note">${esc(d.note)}</span>` : ""}</div></div>
+    </div></details>`;
+}
+document.getElementById("phases").outerHTML = `<div id="phases" style="display:flex;flex-direction:column;gap:14px">${PHASES.map(phaseHtml).join("")}</div>`;
+
+function refresh() {
+  let total = 0, ticked = 0;
+  PHASES.forEach(p => {
+    const ids = stepsOf(p).map(s => s.id).concat(p.done.id);
+    const n = ids.filter(i => done[i]).length;
+    total += ids.length; ticked += n;
+    document.getElementById("cnt-" + p.id).textContent = `${n}/${ids.length}`;
+    document.getElementById("mini-" + p.id).style.width = (100 * n / ids.length) + "%";
+    document.getElementById(p.id).classList.toggle("complete", n === ids.length);
+  });
+  document.querySelectorAll("input[data-id]").forEach(cb => {
+    cb.checked = !!done[cb.dataset.id];
+    cb.closest(".step, .milestone").classList.toggle("done", cb.checked);
+  });
+  const pct = total ? Math.round(100 * ticked / total) : 0;
+  document.getElementById("pct").textContent = pct + "%";
+  document.getElementById("count").textContent = `${ticked} of ${total} steps`;
+  document.getElementById("fill").style.width = pct + "%";
+}
+
+function applyOpen() {
+  const firstOpen = PHASES.find(p => !stepsOf(p).concat(p.done).every(s => done[s.id]));
+  document.querySelectorAll("details.phase").forEach(d => {
+    const saved = open[d.id];
+    d.open = saved === undefined ? (firstOpen ? d.id === firstOpen.id : false) : saved;
+  });
+}
+
+// launch countdown (19 Nov 2026)
+(function () {
+  const days = Math.ceil((new Date(2026, 10, 19) - new Date()) / 86400000);
+  const el = document.getElementById("launch");
+  if (days > 1) el.textContent = `GTA 6 launches in ${days} days (19 November). Aim to finish Phases 1–3 before then.`;
+  else if (days === 1) el.textContent = "GTA 6 launches tomorrow. Phases 1–3 first; add posting and tracking as you go.";
+  else el.textContent = "GTA 6 is out. Get Phases 1–3 done first; add posting and tracking as you go.";
+})();
+
+// ---------- saving: this browser's local storage ----------
+const syncEl = document.getElementById("sync");
+function saveLocal() {
+  try { localStorage.setItem(LS_DONE, JSON.stringify(done)); syncEl.textContent = "Saved in this browser"; }
+  catch (e) { syncEl.textContent = "Not saved: this browser blocks storage"; }
+}
+function save() { saveLocal(); }
+
+document.addEventListener("change", e => {
+  const id = e.target.dataset && e.target.dataset.id;
+  if (!id) return;
+  if (e.target.checked) done[id] = true; else delete done[id];
+  refresh(); save();
+});
+document.addEventListener("toggle", e => {
+  if (!e.target.matches || !e.target.matches("details.phase")) return;
+  open[e.target.id] = e.target.open;
+  try { localStorage.setItem(LS_OPEN, JSON.stringify(open)); } catch (err) {}
+}, true);
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  const text = b.dataset.copy;
+  try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; }
+  catch (err) {
+    const r = document.createRange(); r.selectNodeContents(b.previousElementSibling);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected";
+  }
+  setTimeout(() => { b.textContent = "Copy"; }, 1400);
+});
+
+// reset with an inline confirmation (dialogs don't show in the viewer)
+const resetWrap = document.getElementById("reset-wrap");
+resetWrap.addEventListener("click", e => {
+  if (e.target.id === "reset") {
+    resetWrap.innerHTML = `<span class="reset-confirm">Untick everything? <button class="danger" id="reset-yes" type="button">Reset</button><button class="ghost" id="reset-no" type="button">Cancel</button></span>`;
+  } else if (e.target.id === "reset-yes") {
+    done = {}; refresh(); save(); resetWrap.innerHTML = `<button class="ghost" id="reset" type="button">Reset progress</button>`;
+  } else if (e.target.id === "reset-no") {
+    resetWrap.innerHTML = `<button class="ghost" id="reset" type="button">Reset progress</button>`;
+  }
+});
+
+refresh(); applyOpen();
+
+</script>
+
+</body>
+</html>

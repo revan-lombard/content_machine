@@ -1,6 +1,6 @@
 # GTA 6 Clip Farm
 
-**New here? Follow [GETTING_STARTED.md](GETTING_STARTED.md), a step-by-step setup checklist.**
+**New here? Follow [GETTING_STARTED.md](GETTING_STARTED.md), a step-by-step setup checklist.** Prefer ticking boxes? Open `setup-checklist.html` in your browser: the same checklist, and it remembers your progress.
 
 There are two ways to feed it:
 
