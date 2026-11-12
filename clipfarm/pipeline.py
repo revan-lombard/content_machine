@@ -60,9 +60,10 @@ def _save_script(clip_dir: Path, meta: dict) -> None:
     (clip_dir / "script.yaml").write_text(
         "# Edit any text below, then run:  python -m clipfarm finish " + clip_dir.as_posix() + "\n"
         + yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, width=1000), encoding="utf-8")
-    src = meta.get("source") or {}
+    src = meta.get("source") or (meta.get("sources") or [{}])[0]
     with db() as con:
-        tracker.register_clip(con, cid, source=src.get("login", "own"), fmt=meta.get("format", ""),
+        who = ", ".join(x["login"] for x in meta["sources"]) if meta.get("sources") else src.get("login", "own")
+        tracker.register_clip(con, cid, source=who, fmt=meta.get("format", ""),
                               hook_style=meta.get("hook_style", ""),
                               length=float(meta.get("length") or 0), title=meta.get("title", ""),
                               path=str(clip_dir.resolve()))
@@ -352,6 +353,123 @@ def build_twitch(cfg: dict, src: dict, vod_id: str | None = None, chat_file: str
     return session_out, out
 
 
+# ---------------------------------------------------------------- multi-streamer reactions
+
+def _slug(text: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "reaction"
+
+
+def find_react(cfg: dict, keywords: list[str], names: list[str], helix=None, vods_back: int = 5,
+               plan_dir: Path | None = None) -> Path:
+    """Search approved streamers' recent viewer clips for the keywords; draft a reaction plan."""
+    from . import sources, twitch
+    h = helix or twitch.Helix()
+    words = [k.lower() for k in keywords]
+    lines, found = [], 0
+    for name in names:
+        src = sources.get(name)  # refuses streamers without permission
+        uid = h.user_id(src["login"])
+        hits = []
+        for vod in h.vods(uid, vods_back):
+            for c in h.clips(uid, vod["created_at"], twitch.vod_end_iso(vod)):
+                title = (c.get("title") or "").lower()
+                if c.get("vod_offset") is None or str(c.get("video_id")) != str(vod["id"]):
+                    continue
+                if any(w in title for w in words):
+                    peak = float(c["vod_offset"]) + max(1.0, float(c.get("duration", 30)) - 4.0)
+                    hits.append((int(c.get("view_count", 0)), vod["id"], peak, c.get("title", "")))
+        hits.sort(reverse=True)
+        if not hits:
+            lines.append(f"  # - source: {src['name']}   # no viewer clip matched {keywords} - add vod + at by hand")
+            continue
+        found += 1
+        views, vod_id, peak, title = hits[0]
+        t = f"{int(peak // 3600)}h{int(peak % 3600 // 60)}m{int(peak % 60)}s"
+        lines.append(f"  - source: {src['name']}\n    vod: https://www.twitch.tv/videos/{vod_id}?t={t}"
+                     f"   # \"{title}\" ({views} views)")
+        for v2, vid2, p2, t2 in hits[1:3]:
+            lines.append(f"    # other match: https://www.twitch.tv/videos/{vid2}?t={int(p2)}s  \"{t2}\" ({v2} views)")
+    moment = " ".join(keywords)
+    plan_dir = plan_dir or (ROOT / "plans")
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    path = plan_dir / f"{_slug(moment)}.yaml"
+    path.write_text(
+        f"# Multi-streamer reaction plan. Check each timestamp: it should be the instant the moment\n"
+        f"# happens (open the link). Order = play order: put the strongest reaction LAST.\n"
+        f"# Then run:  python -m clipfarm react build {path.as_posix()}\n"
+        f"title: \"{len(names)} streamers react to {moment}\"\n"
+        f"moment: \"{moment}\"\n"
+        f"layout: sequence      # sequence | grid (grid needs a facecam box for every streamer)\n"
+        f"align: true           # fine-tune sync from shared game audio when it matches\n"
+        f"entries:\n" + "\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Matched {found} of {len(names)} streamers. Plan: {path}")
+    return path
+
+
+def build_react(cfg: dict, plan_path: str | Path, sources_file=None) -> Path:
+    """Build a multi-streamer reaction clip from a plan. Every streamer must be approved."""
+    from . import react, sources, twitch
+    plan = react.load_plan(plan_path, lambda n: sources.get(n, sources_file))
+    entries = plan["entries"]
+    n = len(entries)
+    grid = plan["layout"] == "grid"
+    if grid and not all(e["source"].get("facecam") for e in entries):
+        missing = [e["source"]["name"] for e in entries if not e["source"].get("facecam")]
+        print(f"  grid needs a facecam box for {', '.join(missing)} - using sequence instead")
+        grid = False
+    session_out = ROOT / "out" / f"react-{_slug(plan.get('title') or plan['moment'])}"
+    pre_dl, post_dl = 14.0, 10.0
+    items = []
+    for i, e in enumerate(entries):
+        piece = session_out / "sources" / f"{i:02d}-{e['source']['name']}.mp4"
+        piece.parent.mkdir(parents=True, exist_ok=True)
+        start = max(0.0, e["at"] - pre_dl)
+        twitch.download_section(e["vod"], start, e["at"] + post_dl, piece)
+        items.append({"file": piece, "t": e["at"] - start, "label": e["label"],
+                      "facecam": e["source"].get("facecam"), "src": e["source"], "vod": e["vod"], "at": e["at"]})
+    if plan.get("align"):
+        synced = react.align([(it["file"], it["t"]) for it in items])
+        for it, (t, conf) in zip(items, synced):
+            moved = t - it["t"]
+            it["t"], it["sync"] = t, conf
+            if conf is not None:
+                state = f"shifted {moved:+.2f}s" if abs(moved) > 0.01 else "kept"
+                print(f"  sync {it['src']['name']}: {state} (match {conf:.2f})")
+    rules = [e["source"].get("rules") or {} for e in entries]
+    hook = plan.get("hook") or plan.get("title") or f"{n} streamers react to {plan['moment']}"
+    clip_dir = session_out / "react"
+    labels = []
+    if grid:
+        beats, labels = react.render_grid(cfg, items, clip_dir, hook)
+    else:
+        max_len = min([float(r["max_length"]) for r in rules if r.get("max_length")] or [0]) or None
+        beats = react.render_sequence(cfg, items, clip_dir, hook, plan.get("setup_text") or plan["moment"],
+                                      max_length=max_len)
+    # every streamer is credited; hashtags merged; platforms limited to what ALL campaigns allow
+    credit = " · ".join(e["label"] for e in entries)
+    tags: list[str] = []
+    for r in rules:
+        for t in r.get("hashtags") or []:
+            if t.lower() not in [x.lower() for x in tags]:
+                tags.append(t)
+    tags = (tags or list(cfg["hashtags"]))[:8]
+    meta = {"kind": "moment", "format": "multi_react", "hook_style": "react",
+            "length": round(ff.duration(clip_dir / "rough.mp4"), 2),
+            "title": hook[:90], "description": f"{n} streamers, one moment: {plan['moment']}.",
+            "credit": credit if len(credit) <= 60 and not grid else "",
+            "credits_all": credit, "layout": "split" if any(it["facecam"] for it in items) else "single",
+            "labels": [list(x) for x in labels], "hashtags": tags,
+            "sources": [{"platform": "twitch", "login": it["src"]["login"], "vod": it["vod"],
+                         "url": f"https://www.twitch.tv/videos/{it['vod']}?t={int(it['at'])}s",
+                         "permission": (it["src"].get("permission") or {}).get("type"),
+                         "sync": it.get("sync")} for it in items],
+            "beats": beats}
+    _save_script(clip_dir, meta)
+    print(f"  {'grid' if grid else 'sequence'} of {n} streamers -> {clip_dir}  ({meta['length']:.0f}s)")
+    return clip_dir
+
+
 # ---------------------------------------------------------------- finish
 
 def finish(cfg: dict, clip_dir: Path, vo: str | None = None, use_captions: bool | None = None) -> Path:
@@ -371,7 +489,8 @@ def finish(cfg: dict, clip_dir: Path, vo: str | None = None, use_captions: bool 
         beats.append({**b, "end": end})
     captions.write_ass(cfg, clip_dir / "overlay.ass", beats, words,
                        credit=meta.get("credit", ""), duration=ff.duration(clip_dir / "rough.mp4"),
-                       split=meta.get("layout") == "split")
+                       split=meta.get("layout") == "split",
+                       labels=[tuple(x) for x in meta.get("labels") or []])
     sfx = []
     for b in meta["beats"]:
         p = _sfx(b["key"])
@@ -391,7 +510,7 @@ def _platform_text(meta: dict) -> dict:
     title = meta["title"].strip()
     desc = meta.get("description", "").strip()
     yt_tags = tags if "#shorts" in [t.lower() for t in tags] else tags + ["#shorts"]
-    credit = meta.get("credit", "").strip()
+    credit = (meta.get("credits_all") or meta.get("credit", "")).strip()
     cr = f"\n\nClip from {credit}" if credit else ""
     crs = f" | {credit}" if credit else ""
     return {
@@ -410,6 +529,7 @@ def kit(session_out: Path) -> Path:
     post.mkdir(exist_ok=True)
     items = []
     clips = (sorted(session_out.glob("challenge/final.mp4")) + sorted(session_out.glob("countdown/final.mp4"))
+             + sorted(session_out.glob("react/final.mp4"))
              + sorted(session_out.glob("moments/*/final.mp4")))
     for n, final in enumerate(clips, 1):
         meta = yaml.safe_load((final.parent / "script.yaml").read_text(encoding="utf-8"))

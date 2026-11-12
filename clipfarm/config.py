@@ -27,7 +27,7 @@ DEFAULTS: dict = {
     "moments": {"length": 18, "hook_flash": 1.5, "max": 10, "min_gap": 20, "auto": True},
     "llm": {"provider": "none", "model": "llama3.1", "url": "http://localhost:11434"},
     "experiments": {"enabled": True,
-                    "formats": ["payoff_first", "straight", "beat_story", "loop", "countdown"],
+                    "formats": ["payoff_first", "straight", "beat_story", "loop", "countdown", "multi_react"],
                     "hook_styles": ["viewer_title", "question", "curiosity", "ai"],
                     "min_scored": 15, "explore": 0.2, "score_hours": 48},
     "publish": {"platforms": ["youtube", "instagram", "facebook"], "min_gap_minutes": 90,

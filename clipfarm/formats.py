@@ -16,7 +16,7 @@ from pathlib import Path
 from . import ff, render
 
 SINGLE = ["payoff_first", "straight", "beat_story", "loop"]
-MULTI = ["countdown"]
+MULTI = ["countdown", "multi_react"]  # multi_react: made on request from a plan (react.py)
 ALL = SINGLE + MULTI
 
 

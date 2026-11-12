@@ -80,6 +80,17 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true", help="show what would be posted")
     p.add_argument("--watch", action="store_true", help="keep running, checking every 10 minutes")
 
+    p = sub.add_parser("react", help="multi-streamer reaction clips: find a moment, then build")
+    rs = p.add_subparsers(dest="react_cmd", required=True)
+    q = rs.add_parser("find", help="search approved streamers' viewer clips and draft a plan")
+    q.add_argument("keywords", nargs="+", help='words from the moment, e.g. dam jump')
+    q.add_argument("--sources", nargs="+", required=True, help="streamer names from sources.yaml")
+    q.add_argument("--vods", type=int, default=5, help="how many recent VODs per streamer to search")
+    q = rs.add_parser("build", help="build the clip from a plan file")
+    q.add_argument("plan")
+    q.add_argument("--no-finish", action="store_true")
+    q.add_argument("--no-captions", action="store_true")
+
     a = ap.parse_args()
     cfg = config.load(a.config)
 
@@ -131,6 +142,16 @@ def main() -> None:
         return
     if a.cmd == "twitch":
         _twitch(cfg, a)
+        return
+    if a.cmd == "react":
+        if a.react_cmd == "find":
+            pipeline.find_react(cfg, a.keywords, a.sources, vods_back=a.vods)
+        else:
+            d = pipeline.build_react(cfg, a.plan)
+            if not a.no_finish:
+                pipeline.finish(cfg, d, use_captions=False if a.no_captions else None)
+                post = pipeline.kit(d.parent)
+                print(f"Review: python -m clipfarm review   (or {post / 'review.html'})")
         return
     if a.cmd == "facecam":
         _facecam(a)
@@ -247,14 +268,14 @@ def _stats(cfg: dict) -> None:
         for dim, arms in (("format", [f for f in exp["formats"] if f in formats.ALL]),
                           ("hook_style", pipeline._arms(cfg, "hook_style", has_viewer_title=True))):
             st = tracker.arm_stats(con, dim, arms, exp.get("score_hours", 48))
-            share, warming = tracker.mix(con, cfg, dim, [x for x in arms if x != "countdown"])
+            share, warming = tracker.mix(con, cfg, dim, [x for x in arms if x not in ("countdown", "multi_react")])
             print(f"\n{dim.replace('_', ' ').title()}s" + ("  (warming up - rotating evenly)" if warming else ""))
             print(f"  {'option':<14}{'clips':>6}{'scored':>8}{'win rate':>10}{'next mix':>10}")
             for x in arms:
                 wr = st[x]["win_rate"]
                 print(f"  {x:<14}{st[x]['clips']:>6}{st[x]['scored']:>8}"
                       f"{'-' if wr is None else f'{wr * 100:.0f}%':>10}"
-                      f"{'+1/stream' if x == 'countdown' else f'{share[x] * 100:.0f}%':>10}")
+                      f"{'+1/stream' if x == 'countdown' else 'on request' if x == 'multi_react' else f'{share[x] * 100:.0f}%':>10}")
 
 
 def _facecam(a) -> None:

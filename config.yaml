@@ -87,12 +87,13 @@ llm:
 #   formats:     payoff_first (flash the payoff, then rewind) | straight (plain, the control)
 #                beat_story (question hook -> build -> "Wait for it..." -> payoff -> hard cut)
 #                loop (~9s, ends on the payoff so it loops) | countdown (top 3 of a stream)
+#                multi_react (several streamers, same moment - made from a plan, see README)
 #   hook_styles: viewer_title (a Twitch viewer's clip title) | question | curiosity | ai (needs llm)
 # Until every option has min_scored scored clips, they rotate evenly. After that, winners get
 # more clips, but `explore` (20%) of picks stay random so the test keeps learning.
 experiments:
   enabled: true
-  formats: [payoff_first, straight, beat_story, loop, countdown]
+  formats: [payoff_first, straight, beat_story, loop, countdown, multi_react]
   hook_styles: [viewer_title, question, curiosity, ai]
   min_scored: 15
   explore: 0.2

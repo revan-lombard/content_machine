@@ -86,7 +86,9 @@ def _esc(text: str) -> str:
 
 
 def write_ass(cfg: dict, path: Path, beats: list[dict], words: list[dict],
-              credit: str = "", duration: float = 0.0, split: bool = False) -> None:
+              credit: str = "", duration: float = 0.0, split: bool = False,
+              labels: list | None = None) -> None:
+    """labels: [(text, x, y)] pinned name tags (e.g. each streamer's tile in a grid)."""
     v, t = cfg["video"], cfg["text"]
     W, H = v["width"], v["height"]
     font = t["font"]
@@ -112,6 +114,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     lines = []
     if credit and duration > 0:
         lines.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},Credit,,0,0,0,,{_esc(credit)}")
+    for text, x, y in labels or []:
+        lines.append(f"Dialogue: 2,{_ts(0)},{_ts(duration)},Credit,,0,0,0,,{{\\an7\\pos({x},{y})}}{_esc(text)}")
     for b in beats:
         text = (b.get("text") or "").strip()
         if not text:

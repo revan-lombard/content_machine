@@ -76,17 +76,16 @@ def _iso(dt: datetime) -> str:
 
 def _allowed_by_source(meta: dict, platform: str, sources_file=None) -> str | None:
     """None if this clip may go to this platform, else why not."""
-    src = meta.get("source") or {}
-    if src.get("platform") != "twitch":
-        return None  # your own gameplay
-    try:
-        s = sources.get(src["login"], sources_file)
-    except SystemExit as e:
-        return f"source no longer approved ({str(e).splitlines()[0]})"
-    allowed = (s.get("rules") or {}).get("platforms")
-    if allowed and platform not in allowed:
-        return f"campaign rules allow only {', '.join(allowed)}"
-    return None
+    srcs = [x for x in (meta.get("sources") or [meta.get("source") or {}]) if x.get("platform") == "twitch"]
+    for src in srcs:  # multi-streamer clips need every streamer's permission and campaign OK
+        try:
+            s = sources.get(src["login"], sources_file)
+        except SystemExit as e:
+            return f"{src['login']}: source no longer approved ({str(e).splitlines()[0]})"
+        allowed = (s.get("rules") or {}).get("platforms")
+        if allowed and platform not in allowed:
+            return f"{src['login']}'s campaign rules allow only {', '.join(allowed)}"
+    return None  # your own gameplay has no sources
 
 
 def queue(con, platform: str) -> list:

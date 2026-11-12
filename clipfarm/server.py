@@ -170,7 +170,7 @@ def _fmt_n(v) -> str:
 def _arm_table(con, cfg, dim: str, arms: list[str], title: str, blurb: str) -> str:
     exp = cfg["experiments"]
     st = tracker.arm_stats(con, dim, arms, exp.get("score_hours", 48))
-    regular = [a for a in arms if a != "countdown"]  # countdown is an extra clip per stream
+    regular = [a for a in arms if a not in ("countdown", "multi_react")]  # made in addition / on request
     share, warming = tracker.mix(con, cfg, dim, regular)
     need = int(exp.get("min_scored", 15))
     rows = []
@@ -185,7 +185,7 @@ def _arm_table(con, cfg, dim: str, arms: list[str], title: str, blurb: str) -> s
                     f"<td>{bar}</td><td class='n'>{'' if wr is None else f'{wr * 100:.0f}%'}</td>"
                     f"<td class='n hide-sm'>{_fmt_n(r['median_views'])}</td>"
                     f"<td class='n hide-sm'>{eng}</td>"
-                    f"<td class='n'>{'+1 per stream' if a == 'countdown' else f'{share[a] * 100:.0f}%'}</td></tr>")
+                    f"<td class='n'>{'+1 per stream' if a == 'countdown' else 'on request' if a == 'multi_react' else f'{share[a] * 100:.0f}%'}</td></tr>")
     note = (f"<div class='note'>Warming up: options rotate evenly until each has {need} scored clips. "
             f"Win rates below are early and noisy.</div>") if warming else ""
     return (f"<h2>{title}</h2><p class='sub'>{blurb}</p>{note}<div class='card' style='overflow-x:auto'><table>"

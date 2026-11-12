@@ -126,6 +126,65 @@ In Windows **Task Scheduler**, go to **Create Basic Task → Daily**, choose
 **Start a program**, and point it at `twitch.bat` in this folder. Clips will be waiting
 for you to review.
 
+## Multi-streamer reactions
+
+This format shows several streamers hitting **the same moment** (a mission, a cutscene, a
+famous jump) in one clip. It's at its strongest in launch week.
+**Every streamer in it must be approved in `sources.yaml`**, and the clip is refused otherwise.
+
+### 1. Find the moment
+
+```
+python -m clipfarm react find dam jump --sources alpha bravo charlie
+```
+
+This searches each streamer's recent viewer clips for those words and writes
+`plans\dam-jump.yaml`, with each streamer's best-matching VOD link and timestamp plus
+runner-up matches. Streamers with no match are left as a commented line for you to fill in.
+
+### 2. Check the plan
+
+Open each link and make sure the timestamp is the instant the moment happens. Then
+**order the streamers so the strongest reaction is last**, because the clip builds up to it.
+
+```yaml
+title: "3 streamers react to the dam jump"
+moment: "the dam jump"
+layout: sequence        # or grid
+align: true
+entries:
+  - source: charlie
+    vod: https://www.twitch.tv/videos/333?t=1h02m40s
+  - source: bravo
+    vod: 222
+    at: 3:12:05          # a separate time works too
+    label: "BRAVO"       # optional on-screen name (default @login)
+```
+
+### 3. Build
+
+```
+python -m clipfarm react build plans\dam-jump.yaml
+```
+
+It downloads about 25s around each timestamp and syncs the streams, then builds,
+finishes, and adds the clip to the review page. Approve it there to auto-post it.
+
+- **Sync:** when the moment has shared game audio (cutscenes, music, explosions), the
+  streams are lined up to a fraction of a second. If the audio doesn't match well enough,
+  your timestamps are used as they are, and the console prints the match score for each
+  streamer.
+- **`sequence` layout:**
+  1. Hook: a 2s flash of the last, best reaction
+  2. The moment, shown in the first streamer's full gameplay
+  3. Each reaction in turn (~5s each, name on screen, zoom punch), then a hard cut
+
+  With 5 streamers that's about 33s. If a campaign sets a `max_length`, the slots shrink to fit.
+- **`grid` layout:** gameplay on top and up to 4 face cams below, all reacting at the same
+  instant. Every streamer needs a `facecam` box; otherwise it falls back to `sequence`.
+- **Credit and posting:** every streamer is credited in every caption, and their campaign
+  hashtags are merged. Auto-posting only uses platforms that **every** streamer's campaign allows.
+
 ## Auto-posting
 
 **Approve** a clip on the review page and it gets posted to **YouTube Shorts, Instagram
@@ -277,6 +336,8 @@ python -m clipfarm post CLIP_ID PLATFORM URL  log a post without the web page
 python -m clipfarm connect youtube|meta       one-time sign-in for auto-posting
 python -m clipfarm approve CLIP_ID... [--reject]
 python -m clipfarm publish [--dry-run] [--watch] [--platform youtube]
+python -m clipfarm react find WORDS... --sources NAME...   draft a multi-streamer plan
+python -m clipfarm react build plans\NAME.yaml            build the reaction clip
 ```
 
 `SESSION` is a `sessions\*.beats.json` file from the logger, or a video file.
