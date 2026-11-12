@@ -37,6 +37,7 @@ DEFAULTS: dict = {
                 "tiktok": {"daily_max": 5, "mode": "inbox", "privacy": "PUBLIC_TO_EVERYONE"},
                 "x": {"daily_max": 8}},
     "tiktok": {"port": 8899},
+    "backup": {"dir": "", "keep": 14},
     "outreach": {"your_name": "", "your_channel": "", "daily_max": 10, "min_gap_minutes": 10,
                  "hours": [10, 20], "followup": True, "followup_days": 5},
     "discovery": {"games": ["Grand Theft Auto VI", "Grand Theft Auto V"], "languages": ["en"],

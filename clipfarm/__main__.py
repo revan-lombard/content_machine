@@ -93,6 +93,13 @@ def main() -> None:
     q.add_argument("--no-finish", action="store_true")
     q.add_argument("--no-captions", action="store_true")
 
+    sub.add_parser("wizard", help="guided setup: keys, streamers, sign-ins, scheduling")
+    sub.add_parser("doctor", help="check every setup item and say what's missing")
+    p = sub.add_parser("schedule", help="create the Windows scheduled tasks (or --remove them)")
+    p.add_argument("--remove", action="store_true")
+    sub.add_parser("backup", help="back up results, keys, streamers and settings")
+    sub.add_parser("update", help="download the latest version and install new packages")
+
     p = sub.add_parser("outreach", help="send the permission requests you queued (within the limits)")
     p.add_argument("--dry-run", action="store_true", help="show what would be sent")
 
@@ -131,6 +138,28 @@ def main() -> None:
         print("Logged.")
         return
 
+    if a.cmd == "wizard":
+        from . import wizard
+        wizard.Wizard(cfg).run()
+        _doctor(cfg)
+        return
+    if a.cmd == "doctor":
+        _doctor(cfg)
+        return
+    if a.cmd == "schedule":
+        from . import ops
+        for line in ops.schedule(remove=a.remove):
+            print(line)
+        return
+    if a.cmd == "backup":
+        from . import ops
+        print(f"Backed up to {ops.backup(cfg)}")
+        return
+    if a.cmd == "update":
+        from . import ops
+        for line in ops.update():
+            print(line)
+        return
     if a.cmd == "discover":
         _discover(cfg, a)
         return
@@ -282,6 +311,21 @@ def _outreach(cfg: dict, dry_run: bool = False, quiet: bool = False) -> None:
                 print(f"  outreach   FAILED #{r['id']}: {r['error']}")
             elif not quiet:
                 print(f"  outreach   {r['skipped']}")
+
+
+def _doctor(cfg: dict) -> None:
+    from . import ops
+    rows = ops.checks(cfg)
+    area = None
+    marks = {"ok": "[x]", "missing": "[ ]", "optional": "[-]"}
+    for a_, item, status, fix in rows:
+        if a_ != area:
+            print(f"\n{a_}")
+            area = a_
+        print(f"  {marks[status]} {item}" + (f"  ->  {fix}" if fix else ""))
+    missing = [r for r in rows if r[2] == "missing"]
+    print(f"\n{sum(r[2] == 'ok' for r in rows)} done, {len(missing)} still needed"
+          f"{', optional items marked [-]' if any(r[2] == 'optional' for r in rows) else ''}.")
 
 
 def datetime_now():

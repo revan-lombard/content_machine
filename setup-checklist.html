@@ -122,7 +122,7 @@ details[open] .chev { transform: rotate(90deg); }
 <main>
   <header class="intro">
     <h1>Clip Farm Setup</h1>
-    <p>Everything from install to auto-posting, in order. Tick steps as you go: your progress is saved in this browser.</p>
+    <p>Install, wizard, first clips: most of the setup is automatic now. Tick steps as you go: your progress is saved in this browser.</p>
     <div class="launch" id="launch">GTA 6 launches 19 November. Aim to finish Phases 1–3 before then.</div>
   </header>
 
@@ -137,11 +137,11 @@ details[open] .chev { transform: rotate(90deg); }
     <summary><span class="ph-label">Every day after setup</span><span class="ph-title">Daily routine</span><span class="ph-count">≈30m</span><span class="ph-meta">What you do once it's running <span class="chev">›</span></span></summary>
     <div class="ph-body">
       <div class="routine">
-        <div class="r-row"><span class="r-when">Morning</span><span class="r-what"><b>twitch.bat</b> makes today's clips (or let Task Scheduler run it)</span></div>
+        <div class="r-row"><span class="r-when">Overnight</span><span class="r-what">Scheduled tasks make clips, find streamers, post and back up</span></div>
         <div class="r-row"><span class="r-when">Morning</span><span class="r-what"><b>review.bat</b>: watch each clip, Approve or Reject. About 1 min per clip</span></div>
-        <div class="r-row"><span class="r-when">All day</span><span class="r-what"><b>publish.bat</b> stays open and posts approved clips, spaced out</span></div>
+        <div class="r-row"><span class="r-when">All day</span><span class="r-what"><b>publish.bat</b> (starts at logon) posts approved clips and sends queued outreach</span></div>
         <div class="r-row"><span class="r-when">TikTok ping</span><span class="r-what">Open the draft, paste the caption from the review page, post. About 15 sec</span></div>
-        <div class="r-row"><span class="r-when">Weekly</span><span class="r-what">Performance tab: see which formats and hooks win. The mix shifts by itself</span></div>
+        <div class="r-row"><span class="r-when">Weekly</span><span class="r-what">Performance tab: which formats, hooks and streamers win. Discover tab: queue requests to new streamers</span></div>
       </div>
     </div>
   </details>
@@ -156,6 +156,8 @@ details[open] .chev { transform: rotate(90deg); }
         <dt>Your streamer shows [OFF]</dt><dd>Run <code>python -m clipfarm sources</code>: it lists exactly what's missing.</dd>
         <dt>"run: python -m clipfarm connect …"</dt><dd>Run that command. A permission was added, or a sign-in expired.</dd>
         <dt>"Auto-post failed, retrying: …" on the review page</dt><dd>The text says why. Paste it to Claude if it's unclear.</dd>
+        <dt>Something isn't set up</dt><dd>Run <code>python -m clipfarm doctor</code>: it lists every item and the fix.</dd>
+        <dt>A scheduled job seems to do nothing</dt><dd>Read its log in data\logs.</dd>
         <dt>Anything else</dt><dd>Copy the full message and send it to Claude. Nothing has run against the live platforms yet, so expect a few first-day fixes.</dd>
       </dl>
     </div>
@@ -170,104 +172,51 @@ details[open] .chev { transform: rotate(90deg); }
 <script>
 const PHASES = [
   { id: "p0", label: "Phase 0 · start today", title: "Start the slow things", time: "15m",
-    intro: "These take days or weeks to come through. Start them now and carry on while you wait.",
+    intro: "These depend on other people or platforms, so start them now.",
     steps: [
-      { id: "perm", text: "Get permission to clip at least one streamer: join a GTA campaign, find a streamer's clipping program on Discord, or DM a smaller streamer and screenshot their yes.",
+      { id: "perm", text: "Get permission to clip at least one streamer: join a GTA campaign, find a streamer's clipping program on Discord, or DM a smaller streamer and screenshot their yes. Once installed, discover.bat finds candidates and drafts the messages.",
         links: [["Content Rewards, search “GTA”", "https://contentrewards.com/c/discover"]], note: "Never pay to join a campaign: that's a scam." },
-      { id: "iglink", text: "Switch Instagram to a Creator or Business account and link it to a Facebook Page you own.", note: "Instagram app → Settings → Account type. Create the Page first if you need one." },
-      { id: "accounts", text: "Create the accounts you'll post from: YouTube channel, TikTok, Instagram, Facebook Page, and X if you want it. Use the same name everywhere." },
+      { id: "iglink", text: "Switch Instagram to a Creator or Business account and link it to a Facebook Page you own.", note: "Instagram app → Settings → Account type." },
+      { id: "accounts", text: "Create the accounts you'll post from: YouTube channel, TikTok, Instagram, Facebook Page, and X if you want it." },
     ],
-    done: { id: "p0done", text: "You have permission for at least one streamer", note: "A campaign link, a screenshot, or a public “anyone can clip me” post." } },
-  { id: "p1", label: "Phase 1", title: "Install on your PC", time: "20m",
+    done: { id: "p0done", text: "You have permission for at least one streamer" } },
+  { id: "p1", label: "Phase 1 · one click", title: "Install", time: "10m",
     steps: [
-      { id: "python", text: "Install Python 3.10 or newer. On the first screen, tick “Add python.exe to PATH”.", links: [["python.org/downloads", "https://www.python.org/downloads/"]] },
-      { id: "git", text: "Install Git with the default options.", links: [["git-scm.com/download/win", "https://git-scm.com/download/win"]] },
-      { id: "clone", text: "Open Command Prompt (Start → type cmd) and run these one at a time. Sign in to GitHub when the browser opens.",
-        cmds: ["cd %USERPROFILE%\\Documents", "git clone https://github.com/revan-lombard/content_machine.git"] },
-      { id: "setup", text: "Open Documents\\content_machine and double-click setup.bat.", note: "If it says ffmpeg was just installed, close it and run setup.bat again." },
-      { id: "shell", text: "Double-click shell.bat. Use this window for every command below." },
+      { id: "install", text: "On GitHub, open install.bat, click Download raw file, then double-click it. It installs Python, Git and ffmpeg, downloads the project and sets it up. Click Yes when Windows asks; sign in to GitHub when the browser opens.",
+        links: [["install.bat on GitHub", "https://github.com/revan-lombard/content_machine/blob/main/install.bat"]] },
     ],
-    done: { id: "p1done", text: "The command list appears", cmds: ["python -m clipfarm -h"], note: "…and the folder now contains secrets.yaml." } },
-  { id: "p2", label: "Phase 2", title: "Your first clips", time: "30m",
+    done: { id: "p1done", text: "The content_machine folder opens by itself" } },
+  { id: "p2", label: "Phase 2", title: "Run the wizard", time: "20–60m",
+    intro: "Double-click wizard.bat. For each step it opens the right page, tells you what to click, tests every key as you paste it, and signs you in. Every optional step can be skipped and done later by running it again.",
     steps: [
-      { id: "twitchapp", text: "Create a Twitch app: any name, OAuth Redirect URL http://localhost, category Application Integration, client type Confidential.",
-        links: [["dev.twitch.tv/console/apps", "https://dev.twitch.tv/console/apps"]] },
-      { id: "twitchkeys", text: "Copy the Client ID, click New Secret, and paste both into secrets.yaml under twitch: (open it with Notepad)." },
-      { id: "source", text: "In sources.yaml, copy the example block and fill in name, login, permission type and proof. Then set enabled: true. For a Kick or YouTube streamer, also add platform: kick or platform: youtube (YouTube login = their @handle).",
-        note: "Copy the campaign's credit, hashtags, max_length and platforms rules too." },
-      { id: "checksrc", text: "Check that your streamer shows [OK ].", cmds: ["python -m clipfarm sources"] },
-      { id: "firstrun", text: "Double-click twitch.bat. The first run downloads the caption model, so give it a few minutes." },
-      { id: "review", text: "Double-click review.bat. The review page opens in your browser." },
+      { id: "wyou", text: "You: your name and clip channel (used to sign messages to streamers)." },
+      { id: "wtwitch", text: "Twitch keys (required): paste the two keys from the Twitch console; the wizard tests them." },
+      { id: "wstream", text: "Streamers: add the ones you have permission for, with the proof." },
+      { id: "wmeta", text: "Optional: Instagram + Facebook." },
+      { id: "wyt", text: "Optional: YouTube (posting + stats)." },
+      { id: "wtt", text: "Optional: TikTok (posting drafts + stats)." },
+      { id: "wx", text: "Optional: X (paid, about 1.5¢ per post)." },
+      { id: "wout", text: "Optional: email and Twitch-whisper outreach." },
+      { id: "wauto", text: "Automation: let it create the scheduled tasks (daily clips, discovery, publisher at logon, nightly backups)." },
     ],
-    done: { id: "p2done", text: "You can play your first clips on the review page", note: "“No moments found” means nobody made viewer clips of that stream. Try a bigger one: twitch.bat NAME --vod <id>." } },
-  { id: "p3", label: "Phase 3 · optional", title: "Make the clips look right", time: "20m",
+    done: { id: "p2done", text: "The health check at the end shows no [ ] items", note: "[-] means optional and not set up. Re-run it any time:", cmds: ["python -m clipfarm doctor"] } },
+  { id: "p3", label: "Phase 3", title: "First clips", time: "15m",
     steps: [
-      { id: "facecam", text: "Find the face cam box. Open the image it saves in the out folder: each square is 10%. Set facecam: [x, y, w, h] in sources.yaml.",
-        cmds: ["python -m clipfarm facecam NAME"] },
-      { id: "sfx", text: "Put free .wav sound effects in assets\\sfx: hook.wav, obstacle.wav, result.wav, rewind.wav." },
-      { id: "lmstudio", text: "Better hook text on your RX 580: install LM Studio, load an 8B Instruct model and start its local server. Then in config.yaml set llm provider: lmstudio and url: http://localhost:1234.",
-        links: [["lmstudio.ai", "https://lmstudio.ai"]] },
-      { id: "whisper", text: "Optional: GPU captions with whisper.cpp's Vulkan build. Set captions engine: whisper-cpp and the two paths in config.yaml." },
-      { id: "rerun", text: "Run twitch.bat again and compare on the review page." },
+      { id: "firstrun", text: "Double-click twitch.bat. It clips the latest stream of each approved streamer (Twitch, Kick or YouTube)." },
+      { id: "approve", text: "Double-click review.bat, watch the clips, and Approve a good one. publish.bat (started at logon) posts it." },
+      { id: "facecam", text: "Optional: face cam layout. Run this in shell.bat, then set facecam in sources.yaml.", cmds: ["python -m clipfarm facecam NAME"] },
+      { id: "extras", text: "Optional: sound effects in assets\\sfx, and better hooks from a local AI with LM Studio (see the README)." },
     ],
-    done: { id: "p3done", text: "You'd happily post these clips as they are" } },
-  { id: "p4", label: "Phase 4", title: "Turn on auto-posting", time: "1–2h",
-    intro: "One platform at a time. After each one, check what would go out without posting anything:",
-    introCmd: "python -m clipfarm publish --dry-run",
-    groups: [
-      { title: "Instagram + Facebook", steps: [
-        { id: "metaapp", text: "Create a Meta app (type Business). Put its App ID and App Secret in secrets.yaml under meta:.", links: [["developers.facebook.com/apps", "https://developers.facebook.com/apps"]] },
-        { id: "metatoken", text: "In Graph API Explorer, pick your app, add the permissions below, and click Generate Access Token.",
-          cmds: ["pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic, instagram_content_publish, instagram_manage_insights, business_management, read_insights"],
-          links: [["Graph API Explorer", "https://developers.facebook.com/tools/explorer/"]] },
-        { id: "metaconnect", text: "Connect, pasting the token. It should name your Page and Instagram account.", cmds: ["python -m clipfarm connect meta --token PASTE_TOKEN"] },
-      ]},
-      { title: "YouTube", steps: [
-        { id: "gcp", text: "In Google Cloud, create a project and enable YouTube Data API v3.", links: [["console.cloud.google.com", "https://console.cloud.google.com"]] },
-        { id: "consent", text: "OAuth consent screen: choose External and add yourself as a test user." },
-        { id: "ytclient", text: "Credentials → Create credentials → OAuth client ID → Desktop app. Put both values in secrets.yaml under youtube_oauth:." },
-        { id: "ytconnect", text: "Connect.", cmds: ["python -m clipfarm connect youtube"] },
-        { id: "ytaudit", text: "Apply for the YouTube API audit (the “audit and quota extension” form). Until it's approved, uploads stay private." },
-      ]},
-      { title: "TikTok", steps: [
-        { id: "ttapp", text: "Create a TikTok app with Login Kit (Desktop, redirect http://localhost:8899/callback/) and Content Posting API. Scopes: user.info.basic, video.list, video.upload.",
-          links: [["developers.tiktok.com", "https://developers.tiktok.com"]] },
-        { id: "ttsandbox", text: "While the app is in Sandbox, add your TikTok account as a target user." },
-        { id: "ttkeys", text: "Put the Client key and Client secret in secrets.yaml under tiktok:, then connect.", cmds: ["python -m clipfarm connect tiktok"] },
-        { id: "ttinbox", text: "Clips arrive in TikTok as drafts. Tap the notification, paste the caption from the review page, and post." },
-      ]},
-      { title: "X · paid, about 1.5¢ per post", steps: [
-        { id: "xapp", text: "Sign up at developer.x.com, add credits under Billing, and create an app.", links: [["developer.x.com", "https://developer.x.com"]] },
-        { id: "xkeys", text: "Copy the Bearer Token into secrets.yaml under x:. Under OAuth 2.0, choose Read and write, set the callback to http://127.0.0.1:8898/callback, and copy the Client ID (and Secret)." },
-        { id: "xconnect", text: "Connect. (Not paying for X? Remove x from publish: platforms: in config.yaml.)", cmds: ["python -m clipfarm connect x"] },
-      ]},
-      { title: "Go live", steps: [
-        { id: "approve", text: "On the review page, Approve one clip." },
-        { id: "publishbat", text: "Double-click publish.bat and leave it open. It posts 90 minutes apart per platform, between 09:00 and 23:00." },
-        { id: "check", text: "Check each platform for the post." },
-      ]},
-    ],
-    done: { id: "p4done", text: "One approved clip shows up on every platform you set up", note: "On YouTube it's private until the audit is approved. On TikTok it's a draft until you post it." } },
-  { id: "p5", label: "Phase 5", title: "Performance tracking", time: "15m",
-    intro: "Instagram, Facebook, TikTok and X stats already work if you connected them in Phase 4.",
+    done: { id: "p3done", text: "Your first approved clip is live", note: "Private on YouTube until the audit; a draft in your TikTok app until you post it." } },
+  { id: "p4", label: "Phase 4 · then wait", title: "Apply for the audits", time: "10m",
     steps: [
-      { id: "ytkey", text: "YouTube stats: in the same Google Cloud project, go to Credentials → Create credentials → API key. Put it in secrets.yaml under youtube: api_key:." },
-      { id: "wait48", text: "Wait 48h after your first posts, then open review.bat → Performance." },
-      { id: "numbers", text: "Type in anything under “Enter numbers”. Those are usually short links (vm.tiktok.com, fb.watch), so log the full link next time." },
+      { id: "ytaudit", text: "YouTube API audit (removes “uploads stay private”): the “audit and quota extension” form in Google Cloud." },
+      { id: "ttaudit", text: "Optional: TikTok Content Posting audit (removes the tap-to-post step). Once approved, set publish tiktok mode: direct and re-run the wizard's TikTok step." },
     ],
-    done: { id: "p5done", text: "The Performance tab shows views, with (almost) nothing to type in" } },
-  { id: "p6", label: "Phase 6", title: "Make it run itself", time: "10m",
-    steps: [
-      { id: "sched", text: "Task Scheduler → Create Basic Task → Daily → Start a program → pick twitch.bat." },
-      { id: "discover", text: "Find more streamers automatically: schedule discover.bat 2–3 times a day at different hours, then check review.bat → Discover weekly and message the top few." },
-      { id: "outreach", text: "Automate permission requests: set your_name and your_channel under outreach: in config.yaml, then set up email (outreach_email in secrets.yaml with a Gmail App Password) and/or Twitch whispers. Each week, queue the top few on Discover and mark replies.",
-        cmds: ["python -m clipfarm connect twitch"] },
-      { id: "startup", text: "Put publish.bat in your Startup folder so it starts with Windows.", cmds: ["shell:startup"], note: "Paste that into Win+R." },
-      { id: "backup", text: "Back up data\\tracker.db, secrets.yaml and sources.yaml somewhere safe. Never share secrets.yaml." },
-      { id: "update", text: "When new features are added, update, then run setup.bat once.", cmds: ["git pull"] },
-    ],
-    done: { id: "p6done", text: "Clips are waiting for you every morning" } },
+    done: { id: "p4done", text: "Both applications submitted" } },
 ];
+
+
 
 // ---------- state ----------
 let done = {};

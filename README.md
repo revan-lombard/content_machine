@@ -1,6 +1,6 @@
 # GTA 6 Clip Farm
 
-**New here? Follow [GETTING_STARTED.md](GETTING_STARTED.md), a step-by-step setup checklist.** Prefer ticking boxes? Open `setup-checklist.html` in your browser: the same checklist, and it remembers your progress.
+**New here?** Download and run **`install.bat`**, then **`wizard.bat`**: together they do almost all of the setup. [GETTING_STARTED.md](GETTING_STARTED.md) has the short checklist. Prefer ticking boxes? Open `setup-checklist.html` in your browser: the same checklist, and it remembers your progress.
 
 There are two ways to feed it:
 
@@ -528,6 +528,11 @@ python -m clipfarm approve CLIP_ID... [--reject]
 python -m clipfarm publish [--dry-run] [--watch] [--platform youtube]
 python -m clipfarm react find WORDS... --sources NAME...   draft a multi-streamer plan
 python -m clipfarm react build plans\NAME.yaml            build the reaction clip
+python -m clipfarm wizard                     guided setup (keys, streamers, sign-ins, scheduling)
+python -m clipfarm doctor                     check every setup item, show what's missing
+python -m clipfarm schedule [--remove]        Windows scheduled tasks for all the daily jobs
+python -m clipfarm backup                     back up results, keys, streamers, settings
+python -m clipfarm update                     latest version + new packages
 ```
 
 `SESSION` is a `sessions\*.beats.json` file from the logger, or a video file.

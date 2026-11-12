@@ -123,6 +123,12 @@ publish:
   x:
     daily_max: 8            # X bills each post (~$0.015 in 2026); see x.monthly_post_limit
 
+# Nightly backups (python -m clipfarm backup). Empty dir = OneDrive\ClipFarm backups if you have
+# OneDrive, otherwise the backups folder here.
+backup:
+  dir: ""
+  keep: 14
+
 # Outreach: permission requests to streamers YOU queue on the Discover tab (email, Twitch whispers).
 # Every message offers an opt-out; nobody gets more than one follow-up.
 outreach:

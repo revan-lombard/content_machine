@@ -7,14 +7,16 @@ where ffmpeg >nul 2>nul || (
   pause
   exit /b
 )
-python -m venv .venv
+set "PY="
+py -3 -c "import sys;sys.exit(sys.version_info<(3,10))" >nul 2>nul && set "PY=py -3"
+if not defined PY python -c "import sys;sys.exit(sys.version_info<(3,10))" >nul 2>nul && set "PY=python"
+if not defined PY (echo Python 3.10+ not found - run install.bat, or install it from python.org. & pause & exit /b 1)
+%PY% -m venv .venv
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 if not exist secrets.yaml copy secrets.example.yaml secrets.yaml >nul
 echo.
 echo Done. Next:
-echo   1. Fill in secrets.yaml (Twitch keys first) - steps are in the file.
-echo   2. Add a streamer you have permission for to sources.yaml.
-echo   3. Run twitch.bat, then review.bat.
+echo   Double-click wizard.bat - it walks you through the rest.
 pause
