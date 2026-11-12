@@ -65,6 +65,7 @@ folder contains `secrets.yaml`.
   1. Copy the `example` block.
   2. Set `name`, `login` (from `twitch.tv/<login>`), `permission.type` and `permission.proof`.
      For a Kick streamer, also add `platform: kick` and use the name from `kick.com/<login>`.
+     For a YouTube streamer, add `platform: youtube` and use their `@handle` as `login`.
   3. Set `enabled: true`.
   4. Copy the campaign's rules: `credit`, `hashtags`, `max_length`, and `platforms` if the
      campaign limits where you can post.

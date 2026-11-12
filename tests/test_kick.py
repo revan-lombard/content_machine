@@ -139,7 +139,7 @@ def test_build_kick(env):
 def test_kick_sources_are_valid():
     assert sources.problems({"platform": "kick", "login": "n3on", "permission": {"type": "campaign", "proof": "x"}}) == []
     assert any("not supported" in p for p in sources.problems(
-        {"platform": "youtube", "login": "x", "permission": {"type": "campaign", "proof": "x"}}))
+        {"platform": "facebook", "login": "x", "permission": {"type": "campaign", "proof": "x"}}))
 
 
 def test_react_mixes_kick_clip_and_twitch_vod(env, monkeypatch):

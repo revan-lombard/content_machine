@@ -84,6 +84,17 @@ def load_plan(path: str | Path, get_source) -> dict:
             continue
         if not e.get("vod"):
             raise SystemExit(f"{e['source']}: give either vod: (+ time) or clip: (a clip link)")
+        if src.get("platform") == "youtube":  # a YouTube link (?t=... or &t=...) or id, + optional at:
+            from .ytlive import video_id
+            vid = video_id(e["vod"])
+            if not vid:
+                raise SystemExit(f"{e['source']}: '{e['vod']}' is not a YouTube video link or id")
+            tm = re.search(r"[?&]t=([0-9hms:.]+)", str(e["vod"]))
+            if e.get("at") is None and not tm:
+                raise SystemExit(f"{e['source']}: no timestamp - add &t=1h2m3s to the link or an 'at:' line")
+            at = parse_time(e["at"] if e.get("at") is not None else tm.group(1))
+            out.append({"source": src, "vod": vid, "at": at, "label": label})
+            continue
         vod, at = parse_vod(e["vod"], e.get("at"))
         out.append({"source": src, "vod": vod, "at": at, "label": label})
     plan["entries"] = out

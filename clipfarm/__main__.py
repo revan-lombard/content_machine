@@ -41,10 +41,10 @@ def main() -> None:
     sub.add_parser("sources", help="check which streamers in sources.yaml are approved")
 
     p = sub.add_parser("clip", aliases=["twitch"],
-                       help="clip an approved streamer (Twitch: latest VOD; Kick: recent viewer clips)")
+                       help="clip an approved streamer (Twitch/YouTube: latest stream; Kick: recent viewer clips)")
     p.add_argument("source", nargs="?", help="name from sources.yaml (omit with --all)")
     p.add_argument("--all", action="store_true", help="every approved streamer, Twitch and Kick")
-    p.add_argument("--vod", help="Twitch: a specific VOD id (from twitch.tv/videos/<id>)")
+    p.add_argument("--vod", help="a specific past stream: Twitch VOD id, or YouTube video link/id")
     p.add_argument("--hours", type=float, help="Kick: use clips from the last N hours (default 48)")
     p.add_argument("--chat", help="chat replay JSON, if you downloaded it yourself")
     p.add_argument("--max", type=int, help="most clips to make")
@@ -205,6 +205,9 @@ def _twitch(cfg: dict, a) -> None:
         try:
             if src.get("platform", "twitch") == "kick":
                 session_out, dirs = pipeline.build_kick(cfg, src, hours=a.hours, max_n=a.max)
+            elif src.get("platform") == "youtube":
+                session_out, dirs = pipeline.build_youtube(cfg, src, video=a.vod if not a.all else None,
+                                                           max_n=a.max)
             else:
                 helix = helix or twitch.Helix()
                 session_out, dirs = pipeline.build_twitch(cfg, src, vod_id=a.vod if not a.all else None,
@@ -363,6 +366,14 @@ def _facecam(a) -> None:
     out.parent.mkdir(exist_ok=True)
     if a.file:
         video, at = a.file, a.at
+    elif src.get("platform") == "youtube":
+        from . import ytlive
+        vid = ytlive.video_id(a.vod) if a.vod else (ytlive.recent_streams(config.load(), src["login"], 1) or [{}])[0].get("id")
+        if not vid:
+            raise SystemExit("No past livestream found - pass --vod <YouTube link> or --file")
+        video = out.with_suffix(".mp4")
+        ytlive.download_section(config.load(), vid, a.at, a.at + 3, video)
+        at = 1.0
     elif src.get("platform") == "kick":
         from . import kick
         top = kick.moments(kick.clips(src["login"], hours=24 * 14), 1)

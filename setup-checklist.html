@@ -193,7 +193,7 @@ const PHASES = [
       { id: "twitchapp", text: "Create a Twitch app: any name, OAuth Redirect URL http://localhost, category Application Integration, client type Confidential.",
         links: [["dev.twitch.tv/console/apps", "https://dev.twitch.tv/console/apps"]] },
       { id: "twitchkeys", text: "Copy the Client ID, click New Secret, and paste both into secrets.yaml under twitch: (open it with Notepad)." },
-      { id: "source", text: "In sources.yaml, copy the example block and fill in name, login, permission type and proof. Then set enabled: true. For a Kick streamer, also add platform: kick.",
+      { id: "source", text: "In sources.yaml, copy the example block and fill in name, login, permission type and proof. Then set enabled: true. For a Kick or YouTube streamer, also add platform: kick or platform: youtube (YouTube login = their @handle).",
         note: "Copy the campaign's credit, hashtags, max_length and platforms rules too." },
       { id: "checksrc", text: "Check that your streamer shows [OK ].", cmds: ["python -m clipfarm sources"] },
       { id: "firstrun", text: "Double-click twitch.bat. The first run downloads the caption model, so give it a few minutes." },

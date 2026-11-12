@@ -37,6 +37,7 @@ DEFAULTS: dict = {
                 "tiktok": {"daily_max": 5, "mode": "inbox", "privacy": "PUBLIC_TO_EVERYONE"},
                 "x": {"daily_max": 8}},
     "tiktok": {"port": 8899},
+    "youtube_live": {"use_chat": True, "use_heatmap": True, "cookies_from_browser": ""},
     "kick": {"hours": 48, "categories": ["Grand Theft Auto"],
              "block_categories": ["Slots", "Casino", "Gambling", "Betting"]},
     "x": {"checkpoints": [48, 168], "monthly_read_limit": 1000, "monthly_post_limit": 150, "port": 8898},

@@ -160,6 +160,25 @@ In Windows **Task Scheduler**, go to **Create Basic Task → Daily**, choose
 **Start a program**, and point it at `twitch.bat` in this folder. Clips will be waiting
 for you to review.
 
+## Clipping YouTube streamers
+
+Add a YouTube streamer to `sources.yaml` with `platform: youtube` and `login:` set to their
+`@handle`, plus permission proof. `twitch.bat` (or `python -m clipfarm clip NAME`) then clips
+their latest finished livestream. Add `--vod <YouTube link>` for a specific one.
+
+- **Where moments come from.** YouTube has no viewer-clips API, so it uses two signals:
+  - **Live chat replay:** message bursts and laugh/hype emotes, the same scoring as Twitch chat.
+  - **"Most replayed":** YouTube's graph of what viewers rewatch. It's coarse on long streams,
+    so each replayed stretch is narrowed to its loudest moment.
+
+  A brand-new stream may have no "most replayed" data yet, because YouTube only shows it once a
+  video has enough views. Chat still works.
+- **Only the needed parts are downloaded** (seconds, not hours), through yt-dlp. No API key needed.
+- **"Confirm you're not a bot":** if yt-dlp says this, set `youtube_live: cookies_from_browser: chrome`
+  (the browser you're signed in to YouTube with) in `config.yaml`.
+- **Reactions:** a YouTube streamer's plan entry takes the video link with its time,
+  `vod: https://www.youtube.com/watch?v=...&t=1h2m3s`, or a separate `at:`.
+
 ## Clipping Kick streamers
 
 Add a Kick streamer to `sources.yaml` with `platform: kick` and `login:` set to the name in

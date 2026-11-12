@@ -123,6 +123,14 @@ publish:
   x:
     daily_max: 8            # X bills each post (~$0.015 in 2026); see x.monthly_post_limit
 
+# YouTube streamers (platform: youtube in sources.yaml, login: their @handle). Moments come from
+# the live chat replay and YouTube's "most replayed" graph. If yt-dlp says "confirm you're not a
+# bot", set cookies_from_browser to the browser you're signed in to YouTube with (e.g. chrome).
+youtube_live:
+  use_chat: true
+  use_heatmap: true
+  cookies_from_browser: ""
+
 # Kick streamers (platform: kick in sources.yaml). Works from viewer clips made in the last
 # `hours`. Only clips whose category contains one of `categories` are used (set a streamer's own
 # list with rules: categories: [...] in sources.yaml; [] = any). Clips in `block_categories`

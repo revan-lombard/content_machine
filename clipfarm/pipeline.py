@@ -353,6 +353,98 @@ def build_twitch(cfg: dict, src: dict, vod_id: str | None = None, chat_file: str
     return session_out, out
 
 
+# ---------------------------------------------------------------- YouTube
+
+def build_youtube(cfg: dict, src: dict, video: str | None = None, max_n: int | None = None,
+                  rng=None) -> tuple[Path, list[Path]]:
+    """Best moments of an approved YouTube streamer's latest (or given) past livestream."""
+    from . import detect, twitch, ytlive
+    m, yc = cfg["moments"], cfg.get("youtube_live") or {}
+    rules = src.get("rules") or {}
+    if video:
+        vid = ytlive.video_id(video)
+        if not vid:
+            raise SystemExit(f"'{video}' is not a YouTube video link or id")
+    else:
+        streams = ytlive.recent_streams(cfg, src["login"], 1)
+        if not streams:
+            raise SystemExit(f"{src['login']} has no finished livestreams on their Live tab")
+        vid = streams[0]["id"]
+    inf = ytlive.info(cfg, vid)
+    session_out = ROOT / "out" / f"{src['name']}-yt-{vid}"
+    session_out.mkdir(parents=True, exist_ok=True)
+    print(f"{src['name']} (YouTube): \"{inf['title']}\" ({inf['duration'] / 3600:.1f}h)")
+    chat = ytlive.chat(cfg, vid, session_out) if yc.get("use_chat", True) else None
+    chat_ms = twitch.moments_from_chat(chat) if chat else []
+    heat_ms = ytlive.moments_from_heatmap(inf["heatmap"]) if yc.get("use_heatmap", True) else []
+    print(f"  chat spikes: {len(chat_ms)}" + ("" if chat else " (no chat replay)")
+          + f" | most-replayed peaks: {len(heat_ms)}" + ("" if inf["heatmap"] else " (no heatmap yet)"))
+    spans = {round(h.peak, 2): h.span for h in heat_ms}
+    picked = twitch.combine(chat_ms, heat_ms, m["min_gap"], max_n or m["max"])
+    if not picked:
+        raise SystemExit("  no moments found: no chat replay and no most-replayed data for this stream yet "
+                         "(the heatmap appears once a video has enough views - try again later)")
+    hf = float(m["hook_flash"])
+    length = float(m["length"])
+    length = max(float(rules.get("min_length", 0)) - hf, length)
+    length = min(float(rules.get("max_length", 600)) - hf, length)
+    credit = rules.get("credit") or f"@{src['login'].lstrip('@')}"
+    tags = rules.get("hashtags") or cfg["hashtags"]
+    facecam = src.get("facecam")
+    common = {"credit": credit, "layout": "split" if facecam else "single", "hashtags": tags}
+    source_meta = lambda peak: {"platform": "youtube", "login": src["login"], "vod": vid,
+                                "url": f"https://www.youtube.com/watch?v={vid}&t={int(peak)}s",
+                                "permission": (src.get("permission") or {}).get("type")}
+    dur = inf["duration"] or 10 ** 9
+    out, pieces = [], []
+    with db() as con:
+        for i, mo in enumerate(picked, 1):
+            span = spans.get(round(mo.peak, 2)) if not any("chat" in r for r in mo.reasons) else None
+            if span:  # coarse most-replayed stretch: grab all of it, then find its loudest point
+                sec_start = max(0.0, span[0] - length)
+                sec_end = min(dur, span[1] + 5.0)
+            else:
+                sec_start = max(0.0, mo.peak + 2.0 - length - 3.0)
+                sec_end = min(dur, mo.peak + 5.0)
+            piece = session_out / "sources" / f"{i:02d}.mp4"
+            piece.parent.mkdir(exist_ok=True)
+            try:
+                ytlive.download_section(cfg, vid, sec_start, sec_end, piece)
+            except RuntimeError as e:
+                print(f"  {i:02d}  skipped: {str(e)[:200]}")
+                continue
+            total = ff.duration(piece)
+            local_peak = mo.peak - sec_start
+            if span:
+                lo, hi = span[0] - sec_start, span[1] - sec_start
+                loud = [t for t in detect.spikes(str(piece), 3, 5.0) if lo - 2 <= t <= hi + 2]
+                if loud:
+                    local_peak = loud[0]
+                    mo.reasons.append("loudest point in it")
+            local_peak = min(max(0.5, local_peak), max(0.5, total - 0.5))
+            abs_peak = sec_start + local_peak
+            pieces.append((mo, piece, local_peak, total))
+            fmt, style = pick_variant(cfg, con, False, rng)
+            text = writer.moment_text(cfg, inf["title"], i, streamer=src["login"].lstrip("@"), hook_style=style)
+            clip_dir = session_out / "moments" / f"{i:02d}"
+            beats = formats.render_single(cfg, fmt, piece, local_peak, total, clip_dir, text["hook"],
+                                          length=length, facecam=facecam)
+            meta = {"kind": "moment", "format": fmt, "hook_style": text["hook_style"],
+                    "length": round(ff.duration(clip_dir / "rough.mp4"), 2),
+                    "found_by": "; ".join(mo.reasons), "source_at": round(abs_peak, 2),
+                    "source": source_meta(abs_peak), **common,
+                    "title": text["title"], "description": text["description"], "beats": beats}
+            _save_script(clip_dir, meta)
+            print(f"  {i:02d}  {abs_peak / 60:6.1f} min  {fmt:<12} {text['hook_style']:<12} ({'; '.join(mo.reasons)})")
+            out.append(clip_dir)
+        if _want_countdown(cfg, con, len(pieces)):
+            best = sorted(pieces, key=lambda x: -x[0].score)[:3]
+            out.append(_countdown(cfg, session_out, [(p, lp, t) for _, p, lp, t in best],
+                                  f"Top 3 moments from {src['login'].lstrip('@')}'s stream",
+                                  {**common, "source": source_meta(best[0][0].peak)}, facecam=facecam))
+    return session_out, out
+
+
 # ---------------------------------------------------------------- Kick
 
 def build_kick(cfg: dict, src: dict, hours: float | None = None, max_n: int | None = None,
@@ -442,6 +534,9 @@ def find_react(cfg: dict, keywords: list[str], names: list[str], helix=None, vod
     lines, found = [], 0
     for name in names:
         src = sources.get(name)  # refuses streamers without permission
+        if src.get("platform") == "youtube":  # YouTube has no searchable clips
+            lines.append(f"  # - source: {src['name']}   # YouTube: add vod: <video link>&t=<time> by hand")
+            continue
         if src.get("platform") == "kick":
             from . import kick
             kc = cfg.get("kick") or {}
@@ -522,7 +617,11 @@ def build_react(cfg: dict, plan_path: str | Path, sources_file=None) -> Path:
                           "src": e["source"], "vod": None, "clip": e["clip"], "at": t})
             continue
         start = max(0.0, e["at"] - pre_dl)
-        twitch.download_section(e["vod"], start, e["at"] + post_dl, piece)
+        if e["source"].get("platform") == "youtube":
+            from . import ytlive
+            ytlive.download_section(cfg, e["vod"], start, e["at"] + post_dl, piece)
+        else:
+            twitch.download_section(e["vod"], start, e["at"] + post_dl, piece)
         items.append({"file": piece, "t": e["at"] - start, "label": e["label"],
                       "facecam": e["source"].get("facecam"), "src": e["source"], "vod": e["vod"], "at": e["at"]})
     if plan.get("align"):
@@ -559,7 +658,10 @@ def build_react(cfg: dict, plan_path: str | Path, sources_file=None) -> Path:
             "labels": [list(x) for x in labels], "hashtags": tags,
             "sources": [{"platform": it["src"].get("platform", "twitch"), "login": it["src"]["login"],
                          "vod": it["vod"],
-                         "url": it.get("clip") or f"https://www.twitch.tv/videos/{it['vod']}?t={int(it['at'])}s",
+                         "url": it.get("clip") or (
+                             f"https://www.youtube.com/watch?v={it['vod']}&t={int(it['at'])}s"
+                             if it["src"].get("platform") == "youtube" else
+                             f"https://www.twitch.tv/videos/{it['vod']}?t={int(it['at'])}s"),
                          "permission": (it["src"].get("permission") or {}).get("type"),
                          "sync": it.get("sync")} for it in items],
             "beats": beats}
