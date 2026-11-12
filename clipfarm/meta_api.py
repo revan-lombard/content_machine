@@ -14,7 +14,7 @@ from . import net
 
 PERMISSIONS = ["pages_show_list", "pages_read_engagement", "pages_manage_posts",
                "instagram_basic", "instagram_content_publish", "instagram_manage_insights",
-               "business_management"]
+               "business_management", "read_insights"]  # read_insights: Facebook Reel stats
 
 
 def graph(ver: str) -> str:
@@ -155,4 +155,69 @@ def recent_media(conf: dict, ver: str, limit: int = 500) -> dict[str, str]:
                 out[code] = m["id"]
         url = (r.get("paging") or {}).get("next")
         params = None  # the `next` link already carries every parameter
+    return out
+
+
+# ---------------------------------------------------------------- Facebook Reel stats
+
+FB_ID = re.compile(r"(?:facebook\.com/(?:reel|reels)/|facebook\.com/[^/?#]+/videos/(?:[^/?#]+/)?|"
+                   r"facebook\.com/watch/?\?v=|[?&]v=)(\d{6,})")
+
+
+def facebook_video_id(url: str) -> str | None:
+    """The video id in a Facebook Reel / video link. fb.watch short links can't be read offline."""
+    m = FB_ID.search(url or "")
+    return m.group(1) if m else None
+
+
+def _total(v) -> int:
+    """Insights values are either a number or a breakdown dict ({"like": 3, "love": 1})."""
+    if isinstance(v, (int, float)):
+        return int(v)
+    if isinstance(v, dict):
+        return sum(int(x) for x in v.values() if isinstance(x, (int, float)))
+    return 0
+
+
+def facebook_stats(conf: dict, video_id: str, ver: str) -> dict:
+    """views / likes / comments / shares for one Facebook Reel on the connected Page.
+
+    views = fb_reels_total_plays (includes replays, what Facebook's own insights show), falling
+    back to blue_reels_play_count. Like Instagram, an unknown metric fails the whole request, so
+    it retries with fewer metrics and falls back to like/comment totals on the video itself."""
+    tok = conf["page_token"]
+    got: dict = {}
+    for metrics in ("fb_reels_total_plays,blue_reels_play_count,post_video_likes_by_reaction_type,"
+                    "post_video_social_actions", "fb_reels_total_plays", "blue_reels_play_count"):
+        try:
+            r = net.request("GET", f"{graph(ver)}/{video_id}/video_insights",
+                            params={"metric": metrics, "access_token": tok}).json()
+        except net.HttpError as e:
+            if e.status == 400:
+                continue
+            raise
+        for m in r.get("data", []):
+            vals = m.get("values") or [{}]
+            got[m["name"]] = vals[0].get("value")
+        if "fb_reels_total_plays" in got or "blue_reels_play_count" in got:
+            break
+    out: dict = {}
+    plays = got.get("fb_reels_total_plays")
+    if plays is None:
+        plays = got.get("blue_reels_play_count")
+    if plays is not None:
+        out["views"] = _total(plays)
+    if "post_video_likes_by_reaction_type" in got:
+        out["likes"] = _total(got["post_video_likes_by_reaction_type"])
+    social = got.get("post_video_social_actions")
+    if isinstance(social, dict):
+        low = {k.lower(): v for k, v in social.items()}
+        out["comments"] = _total(low.get("comment", 0))
+        out["shares"] = _total(low.get("share", 0))
+    if "likes" not in out or "comments" not in out:
+        node = net.request("GET", f"{graph(ver)}/{video_id}", params={
+            "fields": "likes.summary(true).limit(0),comments.summary(true).limit(0)",
+            "access_token": tok}).json()
+        out.setdefault("likes", int(((node.get("likes") or {}).get("summary") or {}).get("total_count", 0)))
+        out.setdefault("comments", int(((node.get("comments") or {}).get("summary") or {}).get("total_count", 0)))
     return out

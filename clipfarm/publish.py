@@ -172,38 +172,31 @@ def _due(posted_at: str, last_fetch: str | None, now: datetime) -> bool:
     return since >= (timedelta(minutes=55) if age <= timedelta(hours=72) else timedelta(hours=23))
 
 
-def fetch_instagram_stats(cfg: dict, con, root: Path, days: int = 30, now: datetime | None = None) -> dict:
-    """Views, likes, comments and shares for your Instagram posts - auto-posted ones and ones you
-    posted by hand and logged with their link. Returns counts: updated / matched / unmatched / failed."""
+def _fetch_meta_stats(cfg: dict, con, root: Path, platform: str, resolve, get_stats, days: int,
+                      now: datetime | None) -> dict:
+    """Shared by Instagram and Facebook: link hand-logged posts to their ids (resolve), then
+    snapshot stats for every post that's due (hourly under 72h old, daily after)."""
     res = {"updated": 0, "matched": 0, "unmatched": 0, "failed": 0}
     f = token_dir(root) / "meta.json"
     if not f.exists():
         return res
     conf = meta_api.load(f)
-    if not conf.get("ig_user_id"):
-        return res
     ver = cfg["publish"].get("meta_api_version", "v23.0")
     now = now or datetime.now(timezone.utc)
-    cutoff = _iso(now - timedelta(days=days))
+    origin = f"{platform}-api"
     posts = con.execute("""SELECT p.id, p.url, p.external_id, p.posted_at,
                                   (SELECT MAX(fetched_at) FROM stats s WHERE s.post_id = p.id
-                                   AND s.origin = 'instagram-api') AS last_fetch
-                           FROM posts p WHERE p.platform = 'instagram' AND p.posted_at >= ?""",
-                        (cutoff,)).fetchall()
-    # posts logged by hand: find their media id from the link's shortcode
-    missing = [p for p in posts if not p["external_id"]]
+                                   AND s.origin = ?) AS last_fetch
+                           FROM posts p WHERE p.platform = ? AND p.posted_at >= ?""",
+                        (origin, platform, _iso(now - timedelta(days=days)))).fetchall()
     ids: dict[int, str] = {p["id"]: p["external_id"] for p in posts if p["external_id"]}
+    missing = [p for p in posts if not p["external_id"]]
     if missing:
-        try:
-            by_code = meta_api.recent_media(conf, ver)
-        except (net.HttpError, RuntimeError) as e:
-            print(f"  Instagram: couldn't list your posts: {str(e)[:150]}")
-            by_code = {}
+        found = resolve(conf, ver, missing)
         for p in missing:
-            mid = by_code.get(meta_api.shortcode(p["url"]) or "")
-            if mid:
-                con.execute("UPDATE posts SET external_id=? WHERE id=?", (mid, p["id"]))
-                ids[p["id"]] = mid
+            if found.get(p["id"]):
+                con.execute("UPDATE posts SET external_id=? WHERE id=?", (found[p["id"]], p["id"]))
+                ids[p["id"]] = found[p["id"]]
                 res["matched"] += 1
             else:
                 res["unmatched"] += 1
@@ -212,13 +205,40 @@ def fetch_instagram_stats(cfg: dict, con, root: Path, days: int = 30, now: datet
         if p["id"] not in ids or not _due(p["posted_at"], p["last_fetch"], now):
             continue
         try:
-            s = meta_api.instagram_stats(conf, ids[p["id"]], ver)
+            s = get_stats(conf, ids[p["id"]], ver)
         except (net.HttpError, RuntimeError) as e:
-            print(f"  Instagram stats failed for {p['url']}: {str(e)[:150]}")
+            print(f"  {platform} stats failed for {p['url']}: {str(e)[:150]}")
             res["failed"] += 1
             continue
         if "views" in s:
             tracker.add_stats(con, p["id"], s["views"], s.get("likes", 0), s.get("comments", 0),
-                              s.get("shares", 0), origin="instagram-api", fetched_at=_iso(now))
+                              s.get("shares", 0), origin=origin, fetched_at=_iso(now))
             res["updated"] += 1
     return res
+
+
+def fetch_instagram_stats(cfg: dict, con, root: Path, days: int = 30, now: datetime | None = None) -> dict:
+    """Views, likes, comments and shares for your Instagram posts - auto-posted ones and ones you
+    posted by hand and logged with their link (matched to your account by the link's code)."""
+    f = token_dir(root) / "meta.json"
+    if f.exists() and not meta_api.load(f).get("ig_user_id"):
+        return {"updated": 0, "matched": 0, "unmatched": 0, "failed": 0}
+
+    def resolve(conf, ver, missing):
+        try:
+            by_code = meta_api.recent_media(conf, ver)
+        except (net.HttpError, RuntimeError) as e:
+            print(f"  Instagram: couldn't list your posts: {str(e)[:150]}")
+            return {}
+        return {p["id"]: by_code.get(meta_api.shortcode(p["url"]) or "") for p in missing}
+
+    return _fetch_meta_stats(cfg, con, root, "instagram", resolve, meta_api.instagram_stats, days, now)
+
+
+def fetch_facebook_stats(cfg: dict, con, root: Path, days: int = 30, now: datetime | None = None) -> dict:
+    """Views (plays incl. replays), reactions, comments and shares for Reels on the connected Page -
+    auto-posted ones and hand-posted ones logged with a facebook.com/reel/... link."""
+    def resolve(conf, ver, missing):  # the video id is in the link itself
+        return {p["id"]: meta_api.facebook_video_id(p["url"]) for p in missing}
+
+    return _fetch_meta_stats(cfg, con, root, "facebook", resolve, meta_api.facebook_stats, days, now)

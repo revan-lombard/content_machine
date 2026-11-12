@@ -256,15 +256,17 @@ def _publish(cfg: dict, a) -> None:
         time.sleep(600)
 
 
-def _print_ig(r: dict) -> None:
+def _print_ig(r: dict, name: str = "Instagram") -> None:
     if not any(r.values()):
         return
-    msg = f"Instagram: updated {r['updated']} post(s)"
+    msg = f"{name}: updated {r['updated']} post(s)"
     if r["matched"]:
         msg += f", linked {r['matched']} hand-posted link(s) to your account"
     if r["unmatched"]:
         msg += (f", {r['unmatched']} link(s) not found on the connected account "
-                "(enter those numbers by hand)")
+                "(enter those numbers by hand)" if name == "Instagram" else
+                f", {r['unmatched']} link(s) without a video id - use the facebook.com/reel/... link, "
+                "not fb.watch (or enter those numbers by hand)")
     if r["failed"]:
         msg += f", {r['failed']} failed"
     print(msg)
@@ -277,6 +279,7 @@ def _refresh_stats(cfg: dict) -> None:
         with pipeline.db() as con:
             stats.fetch_youtube(con)
             _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
+            _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
     except Exception as e:  # never let stats stop the publisher
         print(f"  stats refresh failed: {str(e)[:200]}")
 
@@ -289,6 +292,7 @@ def _stats(cfg: dict) -> None:
         print(f"YouTube: updated {n} post(s)")
         from . import publish
         _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
+        _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
         todo = tracker.todo(con, exp.get("score_hours", 48))
         if todo:
             print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")

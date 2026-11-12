@@ -126,8 +126,15 @@ review.bat      # updates YouTube stats, then opens http://localhost:8765
   - Hourly while `publish.bat` runs.
   Young posts (under 72h) refresh hourly, which keeps their 48h score accurate. Older posts
   refresh once a day, which keeps you well under Meta's rate limits.
-- **TikTok, Facebook, X:** typed in on the Performance tab for now. Instagram links from an
-  account other than the connected one also land there.
+- **Facebook: automatic** for Reels on the connected Page, both auto-posted ones and ones you
+  log with a `facebook.com/reel/...` or `.../videos/...` link.
+  - Views are total plays **including replays**, which is the number Facebook's own
+    insights page shows. Likes are all reactions combined. Comments and shares are counted too.
+  - `fb.watch/...` short links don't contain the video id, so log the full link instead.
+  - Needs the `read_insights` permission. If you connected Meta before this was added, run
+    `python -m clipfarm connect meta --token ...` once more with it ticked.
+- **TikTok, X:** typed in on the Performance tab for now. Instagram or Facebook links from
+  an account other than the connected one also land there.
 - **Data storage:** everything is kept in `data/tracker.db` on your PC. Back it up now and
   then, because it holds all your results.
 
@@ -220,7 +227,8 @@ these reasons:
    - Create a Meta app and put its ID and secret in `secrets.yaml` (steps in `secrets.example.yaml`).
    - In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), select your app and add
      these permissions: `pages_show_list, pages_read_engagement, pages_manage_posts,
-     instagram_basic, instagram_content_publish, instagram_manage_insights, business_management`.
+     instagram_basic, instagram_content_publish, instagram_manage_insights, business_management,
+     read_insights`.
    - Click **Generate Access Token**, then run:
 ```
 python -m clipfarm connect meta --token PASTE_TOKEN_HERE
@@ -249,8 +257,8 @@ Or run `python -m clipfarm publish` hourly from Task Scheduler. Use
 - **Failures:** a post that fails is retried on later runs, up to 3 times. Errors show on
   the review page and the Performance tab.
 - **Tracking:** every post is logged with its link automatically, so its views are tracked
-  with no typing. YouTube and Instagram view counts are fetched automatically (hourly while
-  `publish.bat` runs).
+  with no typing. YouTube, Instagram and Facebook view counts are fetched automatically
+  (hourly while `publish.bat` runs).
 
 ## Clipping your own gameplay
 
