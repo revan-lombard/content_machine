@@ -235,6 +235,7 @@ def _connect(cfg: dict, a) -> None:
 def _publish(cfg: dict, a) -> None:
     import time
     from . import publish
+    last_stats = 0.0
     while True:
         with pipeline.db() as con:
             for r in publish.run(cfg, con, config.ROOT, platforms=a.platform, dry_run=a.dry_run):
@@ -249,7 +250,35 @@ def _publish(cfg: dict, a) -> None:
                     print(f"  {p} {('[' + r['clip'] + '] ') if r.get('clip') else ''}{r['skipped']}")
         if not a.watch:
             return
+        if time.time() - last_stats >= 3600:  # keep view counts fresh while it runs
+            _refresh_stats(cfg)
+            last_stats = time.time()
         time.sleep(600)
+
+
+def _print_ig(r: dict) -> None:
+    if not any(r.values()):
+        return
+    msg = f"Instagram: updated {r['updated']} post(s)"
+    if r["matched"]:
+        msg += f", linked {r['matched']} hand-posted link(s) to your account"
+    if r["unmatched"]:
+        msg += (f", {r['unmatched']} link(s) not found on the connected account "
+                "(enter those numbers by hand)")
+    if r["failed"]:
+        msg += f", {r['failed']} failed"
+    print(msg)
+
+
+def _refresh_stats(cfg: dict) -> None:
+    """Quiet stats refresh used by publish --watch."""
+    from . import publish, stats
+    try:
+        with pipeline.db() as con:
+            stats.fetch_youtube(con)
+            _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
+    except Exception as e:  # never let stats stop the publisher
+        print(f"  stats refresh failed: {str(e)[:200]}")
 
 
 def _stats(cfg: dict) -> None:
@@ -259,9 +288,7 @@ def _stats(cfg: dict) -> None:
         n = stats.fetch_youtube(con)
         print(f"YouTube: updated {n} post(s)")
         from . import publish
-        n = publish.fetch_instagram_stats(cfg, con, config.ROOT)
-        if n:
-            print(f"Instagram: updated {n} post(s)")
+        _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
         todo = tracker.todo(con, exp.get("score_hours", 48))
         if todo:
             print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")

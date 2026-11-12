@@ -7,6 +7,7 @@ That exchanges it for a long-lived token and stores a Page token, which doesn't 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import net
@@ -103,11 +104,55 @@ def post_facebook(conf: dict, video: Path, caption: str, ver: str) -> tuple[str,
 
 
 def instagram_stats(conf: dict, media_id: str, ver: str) -> dict:
-    """views / likes / comments / shares for one Instagram media. Metric names follow Meta's current API."""
-    r = net.request("GET", f"{graph(ver)}/{media_id}/insights", params={
-        "metric": "views,likes,comments,shares", "access_token": conf["page_token"]}).json()
-    out = {}
-    for m in r.get("data", []):
-        vals = m.get("values") or [{}]
-        out[m["name"]] = int(vals[0].get("value", 0) or m.get("total_value", {}).get("value", 0) or 0)
+    """views / likes / comments / shares / saved / reach for one Instagram media.
+
+    Meta renames and retires metrics from time to time (e.g. `plays` became `views` in 2025),
+    and one unknown metric fails the whole request. So: try the full set, then views alone,
+    and always fall back to like_count / comments_count on the media itself."""
+    tok = conf["page_token"]
+    out: dict = {}
+    for metrics in ("views,likes,comments,shares,saved,reach", "views"):
+        try:
+            r = net.request("GET", f"{graph(ver)}/{media_id}/insights",
+                            params={"metric": metrics, "access_token": tok}).json()
+        except net.HttpError as e:
+            if e.status == 400:
+                continue  # an unsupported metric: try a smaller set
+            raise
+        for m in r.get("data", []):
+            vals = m.get("values") or []
+            v = vals[0].get("value") if vals else (m.get("total_value") or {}).get("value")
+            if isinstance(v, (int, float)):
+                out[m["name"]] = int(v)
+        if "views" in out:
+            break
+    if "likes" not in out or "comments" not in out:
+        node = net.request("GET", f"{graph(ver)}/{media_id}", params={
+            "fields": "like_count,comments_count", "access_token": tok}).json()
+        out.setdefault("likes", int(node.get("like_count", 0) or 0))
+        out.setdefault("comments", int(node.get("comments_count", 0) or 0))
+    return out
+
+
+SHORTCODE = re.compile(r"instagram\.com/(?:[A-Za-z0-9_.]+/)?(?:reels?|p|tv)/([A-Za-z0-9_-]+)")
+
+
+def shortcode(url: str) -> str | None:
+    m = SHORTCODE.search(url or "")
+    return m.group(1) if m else None
+
+
+def recent_media(conf: dict, ver: str, limit: int = 500) -> dict[str, str]:
+    """shortcode -> media id for the connected account's recent posts (newest first)."""
+    out: dict[str, str] = {}
+    url = f"{graph(ver)}/{conf['ig_user_id']}/media"
+    params = {"fields": "id,permalink,shortcode", "limit": 50, "access_token": conf["page_token"]}
+    while url and len(out) < limit:
+        r = net.request("GET", url, params=params).json()
+        for m in r.get("data", []):
+            code = m.get("shortcode") or shortcode(m.get("permalink", ""))
+            if code:
+                out[code] = m["id"]
+        url = (r.get("paging") or {}).get("next")
+        params = None  # the `next` link already carries every parameter
     return out

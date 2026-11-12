@@ -162,23 +162,63 @@ def run(cfg: dict, con, root: Path, clients=None, platforms: list[str] | None = 
     return results
 
 
-def fetch_instagram_stats(cfg: dict, con, root: Path, days: int = 30) -> int:
-    """Auto stats for Instagram posts made by the publisher (we know their media ids)."""
+def _due(posted_at: str, last_fetch: str | None, now: datetime) -> bool:
+    """Fetch hourly while a post is young (its 48h score is being decided), daily after that.
+    Keeps well under Meta's API rate limits even with hundreds of posts."""
+    if not last_fetch:
+        return True
+    age = now - datetime.strptime(posted_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    since = now - datetime.strptime(last_fetch, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    return since >= (timedelta(minutes=55) if age <= timedelta(hours=72) else timedelta(hours=23))
+
+
+def fetch_instagram_stats(cfg: dict, con, root: Path, days: int = 30, now: datetime | None = None) -> dict:
+    """Views, likes, comments and shares for your Instagram posts - auto-posted ones and ones you
+    posted by hand and logged with their link. Returns counts: updated / matched / unmatched / failed."""
+    res = {"updated": 0, "matched": 0, "unmatched": 0, "failed": 0}
     f = token_dir(root) / "meta.json"
     if not f.exists():
-        return 0
+        return res
     conf = meta_api.load(f)
-    cutoff = _iso(datetime.now(timezone.utc) - timedelta(days=days))
-    n = 0
-    for p in con.execute("""SELECT id, external_id FROM posts WHERE platform='instagram'
-                            AND external_id IS NOT NULL AND posted_at >= ?""", (cutoff,)).fetchall():
+    if not conf.get("ig_user_id"):
+        return res
+    ver = cfg["publish"].get("meta_api_version", "v23.0")
+    now = now or datetime.now(timezone.utc)
+    cutoff = _iso(now - timedelta(days=days))
+    posts = con.execute("""SELECT p.id, p.url, p.external_id, p.posted_at,
+                                  (SELECT MAX(fetched_at) FROM stats s WHERE s.post_id = p.id
+                                   AND s.origin = 'instagram-api') AS last_fetch
+                           FROM posts p WHERE p.platform = 'instagram' AND p.posted_at >= ?""",
+                        (cutoff,)).fetchall()
+    # posts logged by hand: find their media id from the link's shortcode
+    missing = [p for p in posts if not p["external_id"]]
+    ids: dict[int, str] = {p["id"]: p["external_id"] for p in posts if p["external_id"]}
+    if missing:
         try:
-            s = meta_api.instagram_stats(conf, p["external_id"], cfg["publish"].get("meta_api_version", "v23.0"))
+            by_code = meta_api.recent_media(conf, ver)
         except (net.HttpError, RuntimeError) as e:
-            print(f"  Instagram stats failed for post {p['id']}: {str(e)[:150]}")
+            print(f"  Instagram: couldn't list your posts: {str(e)[:150]}")
+            by_code = {}
+        for p in missing:
+            mid = by_code.get(meta_api.shortcode(p["url"]) or "")
+            if mid:
+                con.execute("UPDATE posts SET external_id=? WHERE id=?", (mid, p["id"]))
+                ids[p["id"]] = mid
+                res["matched"] += 1
+            else:
+                res["unmatched"] += 1
+        con.commit()
+    for p in posts:
+        if p["id"] not in ids or not _due(p["posted_at"], p["last_fetch"], now):
+            continue
+        try:
+            s = meta_api.instagram_stats(conf, ids[p["id"]], ver)
+        except (net.HttpError, RuntimeError) as e:
+            print(f"  Instagram stats failed for {p['url']}: {str(e)[:150]}")
+            res["failed"] += 1
             continue
         if "views" in s:
             tracker.add_stats(con, p["id"], s["views"], s.get("likes", 0), s.get("comments", 0),
-                              s.get("shares", 0), origin="instagram-api")
-            n += 1
-    return n
+                              s.get("shares", 0), origin="instagram-api", fetched_at=_iso(now))
+            res["updated"] += 1
+    return res

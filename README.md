@@ -113,12 +113,23 @@ review.bat      # updates YouTube stats, then opens http://localhost:8765
 ### Where the numbers come from
 
 - **YouTube: automatic.** Create a free YouTube Data API key (steps in
-  `secrets.example.yaml`). `review.bat` fetches the counts each time you run it, or run
-  `python -m clipfarm stats` on its own.
-- **TikTok, Instagram, Facebook, X: typed in on the Performance tab** for now. Their
-  stats APIs need app reviews or business accounts, which is the next phase.
-- **Data storage:** everything is kept in `data/tracker.db` on your PC. Back it up now
-  and then, because it holds all your results.
+  `secrets.example.yaml`).
+- **Instagram: automatic** once Meta is connected (`python -m clipfarm connect meta`, see
+  Auto-posting). This covers both kinds of Instagram post:
+  - Auto-posted Reels.
+  - Reels you post by hand and log with their link. It matches the link to your account's
+    posts by its code (`instagram.com/reel/CODE`).
+  It reads views, likes, comments and shares. If Meta retires a metric (as it did when
+  `plays` became `views` in 2025), it falls back to what's still available instead of failing.
+- **When numbers update:**
+  - Every time you run `review.bat` or `python -m clipfarm stats`.
+  - Hourly while `publish.bat` runs.
+  Young posts (under 72h) refresh hourly, which keeps their 48h score accurate. Older posts
+  refresh once a day, which keeps you well under Meta's rate limits.
+- **TikTok, Facebook, X:** typed in on the Performance tab for now. Instagram links from an
+  account other than the connected one also land there.
+- **Data storage:** everything is kept in `data/tracker.db` on your PC. Back it up now and
+  then, because it holds all your results.
 
 ### Optional: run it every day by itself
 
@@ -238,8 +249,8 @@ Or run `python -m clipfarm publish` hourly from Task Scheduler. Use
 - **Failures:** a post that fails is retried on later runs, up to 3 times. Errors show on
   the review page and the Performance tab.
 - **Tracking:** every post is logged with its link automatically, so its views are tracked
-  with no typing. YouTube and Instagram view counts are also fetched automatically by
-  `python -m clipfarm stats`.
+  with no typing. YouTube and Instagram view counts are fetched automatically (hourly while
+  `publish.bat` runs).
 
 ## Clipping your own gameplay
 

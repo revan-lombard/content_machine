@@ -219,8 +219,8 @@ def dashboard_page(con, cfg) -> bytes:
             f"<input name='shares' type='number' min='0' placeholder='shares'>"
             f"<button onclick='stats(this,{d['id']})'>Save</button></div></td></tr>" for d in need)
         body.append(f"<h2>Enter numbers ({len(need)})</h2><p class='sub'>These posts are {hours}h+ old. "
-                    f"Open each one, type in its numbers. YouTube fills in automatically with "
-                    f"<code>python -m clipfarm stats</code>.</p><div class='card' style='overflow-x:auto'>"
+                    f"Open each one, type in its numbers. YouTube and Instagram fill in automatically "
+                    f"(<code>python -m clipfarm stats</code>, or hourly while publish.bat runs).</p><div class='card' style='overflow-x:auto'>"
                     f"<table>{rows}</table></div>")
 
     fails = con.execute("""SELECT a.*, c.title FROM publish_attempts a LEFT JOIN clips c ON c.id = a.clip_id
