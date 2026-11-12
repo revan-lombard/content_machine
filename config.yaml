@@ -117,4 +117,10 @@ publish:
 tiktok:
   port: 8899
 
+# X stats. X charges per post read (~$0.005 in 2026), so each post is read only at these
+# checkpoints (hours after posting), and never more than monthly_read_limit reads a month.
+x:
+  checkpoints: [48, 168]
+  monthly_read_limit: 1000   # ~ $5 at 2026 prices
+
 hashtags: ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"]

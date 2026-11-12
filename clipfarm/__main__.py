@@ -268,6 +268,8 @@ def _publish(cfg: dict, a) -> None:
 def _print_ig(r: dict, name: str = "Instagram") -> None:
     if not any(r.values()):
         return
+    if r.get("capped") and not (r["updated"] or r["failed"]):
+        return  # the cap message was already printed
     msg = f"{name}: updated {r['updated']} post(s)"
     if r["matched"]:
         msg += f", linked {r['matched']} hand-posted link(s) to your account"
@@ -276,6 +278,7 @@ def _print_ig(r: dict, name: str = "Instagram") -> None:
                 "(enter those numbers by hand)" if name == "Instagram" else
                 f", {r['unmatched']} short link(s) without a video id - paste the full "
                 + ("tiktok.com/@you/video/... link, not vm.tiktok.com" if name == "TikTok" else
+                   "x.com/you/status/... link" if name == "X" else
                    "facebook.com/reel/... link, not fb.watch") + " (or enter those numbers by hand)")
     if r["failed"]:
         msg += f", {r['failed']} failed" + (" (not on the connected account?)" if name == "TikTok" else "")
@@ -291,6 +294,7 @@ def _refresh_stats(cfg: dict) -> None:
             _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
             _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
             _print_ig(stats.fetch_tiktok_stats(cfg, con, config.ROOT), "TikTok")
+            _print_ig(stats.fetch_x_stats(cfg, con, config.ROOT), "X")
     except Exception as e:  # never let stats stop the publisher
         print(f"  stats refresh failed: {str(e)[:200]}")
 
@@ -305,6 +309,7 @@ def _stats(cfg: dict) -> None:
         _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
         _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
         _print_ig(stats.fetch_tiktok_stats(cfg, con, config.ROOT), "TikTok")
+        _print_ig(stats.fetch_x_stats(cfg, con, config.ROOT), "X")
         todo = tracker.todo(con, exp.get("score_hours", 48))
         if todo:
             print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")

@@ -35,6 +35,7 @@ DEFAULTS: dict = {
                 "youtube": {"daily_max": 5, "privacy": "public"},
                 "instagram": {"daily_max": 10}, "facebook": {"daily_max": 10}},
     "tiktok": {"port": 8899},
+    "x": {"checkpoints": [48, 168], "monthly_read_limit": 1000},
     "hashtags": ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"],
 }
 

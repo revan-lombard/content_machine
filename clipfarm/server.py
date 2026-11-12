@@ -219,7 +219,7 @@ def dashboard_page(con, cfg) -> bytes:
             f"<input name='shares' type='number' min='0' placeholder='shares'>"
             f"<button onclick='stats(this,{d['id']})'>Save</button></div></td></tr>" for d in need)
         body.append(f"<h2>Enter numbers ({len(need)})</h2><p class='sub'>These posts are {hours}h+ old. "
-                    f"Open each one, type in its numbers. YouTube, TikTok, Instagram and Facebook fill in automatically "
+                    f"Open each one, type in its numbers. Every platform fills in automatically once connected "
                     f"(<code>python -m clipfarm stats</code>, or hourly while publish.bat runs).</p><div class='card' style='overflow-x:auto'>"
                     f"<table>{rows}</table></div>")
 

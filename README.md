@@ -141,8 +141,14 @@ review.bat      # updates YouTube stats, then opens http://localhost:8765
   - `vm.tiktok.com/...` short links don't contain the video id, so log the full link instead.
   - While the app is in TikTok's **Sandbox**, add your posting account as a target user. If
     TikTok asks for an app review before `video.list` works for you, submit it from the same page.
-- **X:** typed in on the Performance tab. So are links from accounts other than the connected
-  ones, on any platform.
+- **X: automatic** for posts you log with an `x.com/you/status/...` link, **but it costs money**:
+  since 2026 X charges per post read (about $0.005). To keep that to roughly a cent per post:
+  - **Two reads per post:** once at 48h (the score) and once at 7 days, not hourly.
+  - **Monthly read limit:** `x.monthly_read_limit` (default 1,000, about $5) in `config.yaml`
+    stops it from reading more than that in a month.
+  - **Setup:** sign up at developer.x.com, add credits under Billing, create an app, and paste
+    its **Bearer Token** into `secrets.yaml`. Leave it empty to keep typing X numbers in for free.
+- **Typed in by hand:** links from accounts other than the connected ones, on any platform.
 - **Data storage:** everything is kept in `data/tracker.db` on your PC. Back it up now and
   then, because it holds all your results.
 

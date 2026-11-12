@@ -112,3 +112,76 @@ def fetch_tiktok_stats(cfg: dict, con, root, days: int = 30, now=None) -> dict:
                           origin="tiktok-api", fetched_at=_iso(now))
         res["updated"] += 1
     return res
+
+
+def _x_due(posted_at: str, fetches: list[str], checkpoints: list[float], now) -> bool:
+    """X reads cost money, so read once at each checkpoint (hours after posting), not hourly.
+    A checkpoint is due once the post is that old and no read has been taken since then."""
+    from datetime import datetime, timedelta, timezone
+    posted = datetime.strptime(posted_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    reads = [datetime.strptime(f, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) for f in fetches]
+    for c in checkpoints:
+        at = posted + timedelta(hours=float(c))
+        if now >= at and not any(r >= at for r in reads):
+            return True
+    return False
+
+
+def fetch_x_stats(cfg: dict, con, root, days: int = 30, now=None) -> dict:
+    """Views (impressions), likes, replies and reposts for X posts logged with their link.
+    Reads happen at cfg x.checkpoints (default 48h and 7 days) and stop at x.monthly_read_limit."""
+    from datetime import datetime, timedelta, timezone
+
+    from . import x_api
+    from .publish import _iso, _secrets
+    res = {"updated": 0, "matched": 0, "unmatched": 0, "failed": 0, "capped": 0}
+    bearer = (_secrets().get("x") or {}).get("bearer_token")
+    if not bearer:
+        return res
+    xc = cfg.get("x") or {}
+    checkpoints = xc.get("checkpoints") or [48, 168]
+    limit = int(xc.get("monthly_read_limit", 1000))
+    now = now or datetime.now(timezone.utc)
+    posts = con.execute("SELECT id, url, external_id, posted_at FROM posts WHERE platform='x' AND posted_at >= ?",
+                        (_iso(now - timedelta(days=days)),)).fetchall()
+    due: dict[str, int] = {}
+    for p in posts:
+        pid = p["external_id"] or x_api.post_id(p["url"])
+        if not pid:
+            res["unmatched"] += 1
+            continue
+        if not p["external_id"]:
+            con.execute("UPDATE posts SET external_id=? WHERE id=?", (pid, p["id"]))
+            res["matched"] += 1
+        fetches = [r[0] for r in con.execute(
+            "SELECT fetched_at FROM stats WHERE post_id=? AND origin='x-api'", (p["id"],))]
+        if _x_due(p["posted_at"], fetches, checkpoints, now):
+            due[pid] = p["id"]
+    con.commit()
+    month = now.strftime("%Y-%m")
+    used = con.execute("SELECT COUNT(*) FROM stats WHERE origin='x-api' AND substr(fetched_at,1,7)=?",
+                       (month,)).fetchone()[0]
+    room = max(0, limit - used)
+    if len(due) > room:
+        res["capped"] = len(due) - room
+        print(f"  X: monthly read limit ({limit}) reached - skipping {res['capped']} read(s). "
+              f"Raise x.monthly_read_limit in config.yaml if you want more.")
+        due = dict(list(due.items())[:room])
+    if not due:
+        return res
+    try:
+        found = x_api.metrics(bearer, list(due))
+    except (net.HttpError, RuntimeError) as e:
+        hint = " (no credits on your X developer account?)" if getattr(e, "status", 0) in (402, 403) else ""
+        print(f"  X stats failed{hint}: {str(e)[:200]}")
+        res["failed"] += len(due)
+        return res
+    for pid, post_id in due.items():
+        s = found.get(pid)
+        if s is None:
+            res["failed"] += 1  # deleted or protected
+            continue
+        tracker.add_stats(con, post_id, s["views"], s["likes"], s["comments"], s["shares"],
+                          origin="x-api", fetched_at=_iso(now))
+        res["updated"] += 1
+    return res
