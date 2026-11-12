@@ -173,6 +173,14 @@ def scan_youtube(api_key: str, queries: list[str], languages: list[str]) -> list
                         "viewers": int((v.get("liveStreamingDetails") or {}).get("concurrentViewers") or 0),
                         "title": sn.get("title", ""), "language": sn.get("defaultAudioLanguage", ""),
                         "game": "GTA", "url": f"https://www.youtube.com/channel/{cid}"})
+    # channel descriptions (1 quota unit per 50): where business emails usually are
+    for i in range(0, len(out), 50):
+        batch = out[i:i + 50]
+        d = net.request("GET", "https://www.googleapis.com/youtube/v3/channels", params={
+            "part": "snippet", "id": ",".join(s["login"] for s in batch), "key": api_key}).json()
+        desc = {c["id"]: (c.get("snippet") or {}).get("description", "") for c in d.get("items", [])}
+        for s in batch:
+            s["bio"] = desc.get(s["login"], "")
     return out
 
 

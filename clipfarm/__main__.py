@@ -69,7 +69,7 @@ def main() -> None:
     p.add_argument("url")
 
     p = sub.add_parser("connect", help="one-time sign-in for auto-posting: youtube or meta")
-    p.add_argument("platform", choices=["youtube", "meta", "tiktok", "x"])
+    p.add_argument("platform", choices=["youtube", "meta", "tiktok", "x", "twitch"])
     p.add_argument("--token", help="meta: a user access token from Graph API Explorer")
     p.add_argument("--page", help="meta: which Facebook Page, if you manage several")
 
@@ -92,6 +92,9 @@ def main() -> None:
     q.add_argument("plan")
     q.add_argument("--no-finish", action="store_true")
     q.add_argument("--no-captions", action="store_true")
+
+    p = sub.add_parser("outreach", help="send the permission requests you queued (within the limits)")
+    p.add_argument("--dry-run", action="store_true", help="show what would be sent")
 
     p = sub.add_parser("discover", help="find GTA streamers worth asking for clipping permission")
     p.add_argument("--platform", action="append", choices=["twitch", "kick", "youtube"])
@@ -130,6 +133,9 @@ def main() -> None:
 
     if a.cmd == "discover":
         _discover(cfg, a)
+        return
+    if a.cmd == "outreach":
+        _outreach(cfg, a.dry_run)
         return
     if a.cmd == "sources":
         from . import sources
@@ -262,6 +268,22 @@ def _discover(cfg: dict, a) -> None:
               f"{(d['clips_7d'] if d['clips_7d'] is not None else '-'):>9}  {'mentions clipping' if d['hint'] else ''}")
 
 
+def _outreach(cfg: dict, dry_run: bool = False, quiet: bool = False) -> None:
+    from . import discover, outreach, publish
+    senders = outreach.build_senders(publish._secrets(), publish.token_dir(config.ROOT))
+    with pipeline.db() as con:
+        discover.setup(con)
+        for r in outreach.send_due(cfg, con, senders, dry_run=dry_run):
+            if "sent" in r:
+                print(f"  outreach   sent {r['kind']} message by {r['sent']} to {r['to']}")
+            elif "would_send" in r:
+                print(f"  outreach   would send by {r['would_send']} to {r['to']}:\n{r['body']}\n")
+            elif "error" in r:
+                print(f"  outreach   FAILED #{r['id']}: {r['error']}")
+            elif not quiet:
+                print(f"  outreach   {r['skipped']}")
+
+
 def datetime_now():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
@@ -271,6 +293,13 @@ def _connect(cfg: dict, a) -> None:
     from . import meta_api, publish, youtube_api
     sec = publish._secrets()
     tokens = publish.token_dir(config.ROOT)
+    if a.platform == "twitch":
+        from . import outreach
+        t = sec.get("twitch") or {}
+        if not (t.get("client_id") and t.get("client_secret")):
+            raise SystemExit("Add twitch client_id and client_secret to secrets.yaml first")
+        outreach.connect_twitch(t["client_id"], t["client_secret"], tokens / "twitch_user.json")
+        return
     if a.platform == "x":
         from . import x_api
         k = sec.get("x") or {}
@@ -329,6 +358,10 @@ def _publish(cfg: dict, a) -> None:
                     print(f"  {p} {('[' + r['clip'] + '] ') if r.get('clip') else ''}{r['skipped']}")
         if not a.watch:
             return
+        try:
+            _outreach(cfg, quiet=True)  # sends queued permission requests within their limits
+        except Exception as e:  # never let outreach stop the publisher
+            print(f"  outreach failed: {str(e)[:200]}")
         if time.time() - last_stats >= 3600:  # keep view counts fresh while it runs
             _refresh_stats(cfg)
             last_stats = time.time()

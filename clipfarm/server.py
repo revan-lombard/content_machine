@@ -52,7 +52,9 @@ th{color:var(--mute);font-weight:600;font-size:12px}th.n{text-align:right}td.n{t
 .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:0 4px 4px 0}
 .bar u{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--mute)}
 .note{background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:9px 12px;margin:8px 0}
-.stats{display:flex;gap:6px;flex-wrap:wrap}.stats input{width:96px}
+.stats{display:flex;gap:6px;flex-wrap:wrap}
+details pre{white-space:pre-wrap;max-width:420px;font:12.5px/1.45 system-ui,sans-serif;background:var(--bg);padding:8px;border-radius:6px}
+a.tag{text-decoration:none;color:var(--ink)}.stats input{width:96px}
 @media(max-width:720px){.clip{grid-template-columns:1fr}video{width:100%}.kpis{grid-template-columns:repeat(2,1fr)}
 .row{grid-template-columns:1fr}.hide-sm{display:none}}
 """
@@ -67,6 +69,7 @@ async function stats(btn,post){const f=btn.closest('.stats');const v=n=>f.queryS
  if(!f.querySelector('[name=views]').value){alert('Enter at least the views');return}
  if(await api('/api/stats',{post_id:post,views:v('views'),likes:v('likes'),comments:v('comments'),shares:v('shares')}))location.reload()}
 async function prospect(sel,platform,login){if(await api('/api/prospect',{platform,login,status:sel.value}))sel.closest('tr').dataset.status=sel.value}
+async function outreach(path,body){if(await api(path,body))location.reload()}
 async function setStatus(clip,status){if(await api('/api/status',{clip_id:clip,status}))location.reload()}
 function cp(btn,text){navigator.clipboard.writeText(text);btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1200)}
 """
@@ -313,14 +316,25 @@ def dashboard_page(con, cfg) -> bytes:
 
 # ---------------------------------------------------------------- server
 
-def discover_page(con, cfg, show_all: bool) -> bytes:
-    from datetime import datetime, timezone
-    from . import discover, sources
+def _outreach_ready() -> dict:
+    from . import outreach, publish
+    return {k: True for k in outreach.build_senders(publish._secrets(), publish.token_dir(pipeline.ROOT))}
+
+
+def discover_page(con, cfg, show_all: bool, ready: dict | None = None) -> bytes:
+    from datetime import datetime, timedelta, timezone
+    from . import discover, outreach, sources
     discover.setup(con)
+    outreach.setup(con)
+    ready = _outreach_ready() if ready is None else ready
+    now = datetime.now(timezone.utc)
     approved = {(x.get("platform", "twitch"), str(x.get("login", "")).lower()) for x in sources.load_all()}
-    ranked = discover.rank(con, cfg, approved, datetime.now(timezone.utc))
+    ranked = discover.rank(con, cfg, approved, now)
     hidden = [d for d in ranked if d["in_sources"] or d["status"] in ("no", "ignore")]
     rows_src = ranked if show_all else [d for d in ranked if d not in hidden]
+    msgs: dict[tuple, dict] = {}
+    for m in con.execute("SELECT * FROM outreach WHERE status IN ('queued','sent','failed') ORDER BY id"):
+        msgs[(m["platform"], m["login"])] = dict(m)  # latest message per streamer
     lo, hi = (cfg.get("discovery") or {}).get("viewers", [100, 8000])
     rows = []
     for d in rows_src[:60]:
@@ -328,28 +342,62 @@ def discover_page(con, cfg, show_all: bool) -> bytes:
                        for st, label in (("new", "New"), ("contacted", "Contacted"), ("yes", "Said yes"),
                                          ("no", "Said no"), ("ignore", "Ignore")))
         plat, login = E(json.dumps(d["platform"])), E(json.dumps(d["login"]))
+        c = outreach.contacts(d.get("bio") or "")
+        chips = []
+        if c["email"]:
+            chips.append(f'<span class="tag">email: {E(c["email"])}</span>')
+        if c["discord"]:
+            dl = c["discord"] if c["discord"].startswith("http") else "https://" + c["discord"]
+            chips.append(f'<a class="tag" href="{E(dl)}" target="_blank" rel="noopener">Discord</a>')
+        if c["x"]:
+            chips.append(f'<a class="tag" href="https://x.com/{E(c["x"])}" target="_blank" rel="noopener">X @{E(c["x"])}</a>')
         badges = "".join(f'<span class="tag">{t}</span>' for t in
                          (["mentions clipping"] if d["hint"] else []) + (["in sources"] if d["in_sources"] else [])
                          + ([d["size_fit"]] if d["size_fit"] != "in range" else []))
         clips = "–" if d["clips_7d"] is None else f'{d["clips_7d"]} ({_fmt_n(d["clip_views_7d"])} views)'
+        m = msgs.get((d["platform"], d["login"]))
+        if m and m["status"] == "queued":
+            state = (f'<details><summary class="done">Queued ({m["channel"]}, {m["kind"]}) · preview</summary>'
+                     f'<pre>{E(m["body"])}</pre></details>'
+                     f'<button class="ghost" onclick="outreach(\'/api/outreach/cancel\',{{id:{m["id"]}}})">Cancel</button>')
+        elif m and m["status"] == "sent":
+            state = (f'<span class="done">Sent {m["kind"]} by {m["channel"]} · {E(m["sent_at"][:10])}</span>')
+        else:
+            fail = (f'<span class="done" title="{E(m["error"] or "")}">Last send failed: {E((m["error"] or "")[:60])}</span>'
+                    if m else "")
+            btns = "".join(f'<button onclick="outreach(\'/api/outreach/queue\',{{platform:{plat},login:{login},'
+                           f'channel:\'{ch}\'}})">Queue {"email" if ch == "email" else "whisper"}</button>'
+                           for ch in outreach.channels_for(d, ready))
+            state = fail + btns
         rows.append(
             f'<tr data-status="{d["status"]}"><td><a href="{E(d["url"])}" target="_blank" rel="noopener"><b>{E(d["name"])}</b></a>'
             f'<div class="done">{E(PLATFORM_NAMES.get(d["platform"], d["platform"]))} · {E((d["last_title"] or "")[:70])}</div>'
-            f'<div>{badges}</div></td>'
+            f'<div>{badges}{"".join(chips)}</div></td>'
             f'<td class="n">{_fmt_n(d["avg_viewers"])}</td><td class="n">{d["days_seen"]}</td>'
             f'<td class="n hide-sm">{clips}</td>'
-            f'<td><div style="display:flex;gap:6px;flex-wrap:wrap">'
-            f'<button class="ghost" onclick="cp(this,{E(json.dumps(discover.dm(d)))})">Copy message</button>'
+            f'<td><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">{state}'
+            f'<button class="ghost" onclick="cp(this,{E(json.dumps(outreach.dm(cfg, d)))})">Copy message</button>'
             f'<button class="ghost" onclick="cp(this,{E(json.dumps(discover.sources_entry(d)))})">Copy sources.yaml entry</button>'
             f'<select onchange="prospect(this,{plat},{login})">{opts}</select></div></td></tr>')
+    o = cfg.get("outreach") or {}
+    queued = con.execute("SELECT COUNT(*) FROM outreach WHERE status='queued'").fetchone()[0]
+    sent24 = con.execute("SELECT COUNT(*) FROM outreach WHERE status='sent' AND sent_at >= ?",
+                         ((now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ"),)).fetchone()[0]
+    setup_bits = [f"email {'ready' if ready.get('email') else 'not set up'}",
+                  f"Twitch whispers {'ready' if ready.get('whisper') else 'not set up'}"]
+    summary = (f"<div class='card' style='display:flex;gap:18px;flex-wrap:wrap'><span><b>{queued}</b> queued</span>"
+               f"<span><b>{sent24}</b>/{o.get('daily_max', 10)} sent in the last 24h</span>"
+               f"<span class='done'>{' · '.join(setup_bits)} · sends {o.get('hours', [10, 20])[0]}:00–"
+               f"{o.get('hours', [10, 20])[1]}:00 while publish.bat runs</span></div>")
     toggle = '<a href="/discover?all=1">show hidden</a>' if not show_all else '<a href="/discover">hide them</a>'
     head = (f"<h1>Discover</h1><p class='sub'>GTA streamers worth asking for permission, best first. Ranked by how often "
             f"they stream GTA (last 14 days), whether their audience is {lo:,}–{hi:,} viewers (the size most likely to "
-            f"say yes), how much their viewers clip them, and whether their bio or title mentions clipping. Run "
-            f"<code>discover.bat</code> a few times a day to build this up. {len(hidden)} hidden (already in "
-            f"sources.yaml, said no, or ignored) · {toggle}</p>"
-            f"<div class='note'>This only suggests who to ask. Add someone to sources.yaml after they say yes, with "
-            f"their yes as the proof.</div>")
+            f"say yes), how much their viewers clip them, and whether their bio or title mentions clipping. "
+            f"<b>Queue</b> sends a personalised request by email (if their bio lists one) or Twitch whisper, within your "
+            f"limits, with one follow-up after {o.get('followup_days', 5)} days. Elsewhere, use Copy message. "
+            f"{len(hidden)} hidden (already in sources.yaml, said no, or ignored) · {toggle}</p>"
+            f"<div class='note'>Mark replies with the status menu: Said yes / Said no stops any follow-up. Add someone "
+            f"to sources.yaml only after they say yes, with their yes as the proof.</div>{summary}")
     if not rows:
         table = "<div class='card'>No streamers recorded yet. Run <code>discover.bat</code> while GTA streams are live.</div>"
     else:
@@ -436,6 +484,23 @@ def make_handler(cfg):
                         if not str(data.get("url", "")).startswith("http"):
                             raise ValueError("That doesn't look like a link")
                         tracker.record_post(con, data["clip_id"], data["platform"], data["url"])
+                    elif self.path in ("/api/outreach/queue", "/api/outreach/cancel"):
+                        from datetime import datetime, timezone
+                        from . import discover, outreach, sources
+                        discover.setup(con)
+                        outreach.setup(con)
+                        if self.path.endswith("cancel"):
+                            outreach.cancel(con, int(data["id"]))
+                        else:
+                            approved = {(x.get("platform", "twitch"), str(x.get("login", "")).lower())
+                                        for x in sources.load_all()}
+                            d = next((x for x in discover.rank(con, cfg, approved, datetime.now(timezone.utc))
+                                      if x["platform"] == data["platform"] and x["login"] == data["login"]), None)
+                            if d is None:
+                                raise ValueError("unknown streamer")
+                            if data.get("channel") not in outreach.channels_for(d, _outreach_ready()):
+                                raise ValueError(f"{data.get('channel')} isn't available for {d['name']}")
+                            outreach.queue(cfg, con, d, data["channel"])
                     elif self.path == "/api/prospect":
                         from . import discover
                         if data.get("status") not in discover.STATUSES:

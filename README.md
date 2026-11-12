@@ -200,6 +200,36 @@ Run `discover.bat` (or `python -m clipfarm discover`) a few times a day, or sche
 **Discovery never grants permission.** A streamer is only clipped once you've added their
 "yes" to `sources.yaml` and set `enabled: true`.
 
+## Asking for permission (outreach)
+
+On the **Discover** tab, press **Queue email** or **Queue whisper** on a streamer. That stores a
+personalised permission request, which mentions how often you've seen their GTA streams and
+their latest stream title, and your local AI can reword it. Expand **preview** to read exactly
+what will be sent; **Cancel** removes it.
+
+`publish.bat` sends queued messages while it runs. You can also run
+`python -m clipfarm outreach` (`--dry-run` to preview).
+
+- **Email:** to the business email in their bio or channel description. Messages go from your own
+  email account via SMTP (for Gmail, an App Password). Set `outreach_email` in `secrets.yaml`.
+- **Twitch whisper:** through Twitch's official API. Add `http://localhost:8897/callback` to your
+  Twitch app, then run `python -m clipfarm connect twitch`. Twitch requires a verified phone number
+  on the sending account and limits whispers to 500 characters, and to 40 new people a day.
+- **Kick, YouTube, X, Discord:** use **Copy message**. Those platforms have no official way to
+  message people, and bots that do it get accounts banned. Contact chips (Discord, X) link
+  straight to them.
+
+**Limits it always follows:**
+- Only people you queued, at most `outreach: daily_max` (10) messages a day, 10 minutes apart,
+  between 10:00 and 20:00.
+- One polite follow-up after 5 days if they're still marked Contacted, and never a third message.
+- Never anyone marked Said no or Ignore. Marking Said yes or Said no cancels anything still queued.
+- An opt-out line in every message. An AI rewrite that drops it is thrown away.
+
+Replies arrive in your inbox or Twitch. Mark them with the status menu: **Said yes** means add
+them to `sources.yaml` with the reply as proof. Set `your_name` and `your_channel` under
+`outreach:` in `config.yaml` so messages are signed properly.
+
 ## Clipping YouTube streamers
 
 Add a YouTube streamer to `sources.yaml` with `platform: youtube` and `login:` set to their

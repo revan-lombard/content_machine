@@ -209,7 +209,11 @@ nothing) to type in.
 - [ ] **Make it automatic:** Task Scheduler → **Create Basic Task** → **Daily** → **Start a program**
       → pick `twitch.bat`. Clips will be waiting for you every morning.
 - [ ] **Find more streamers automatically:** schedule `discover.bat` to run 2–3 times a day at
-      different hours. Then check `review.bat` → **Discover** weekly and message the top few.
+      different hours.
+- [ ] **Automate permission requests:** set `your_name` and `your_channel` under `outreach:` in
+      `config.yaml`. Then set up email (`outreach_email` in `secrets.yaml`, Gmail App Password) and/or
+      Twitch whispers (`python -m clipfarm connect twitch`). Each week, open **Discover**, queue
+      the top few, and mark replies with the status menu.
 - [ ] Put `publish.bat` in your Startup folder (Win+R → `shell:startup`) so it starts with Windows.
 
 ---

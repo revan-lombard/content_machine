@@ -123,6 +123,17 @@ publish:
   x:
     daily_max: 8            # X bills each post (~$0.015 in 2026); see x.monthly_post_limit
 
+# Outreach: permission requests to streamers YOU queue on the Discover tab (email, Twitch whispers).
+# Every message offers an opt-out; nobody gets more than one follow-up.
+outreach:
+  your_name: ""            # how you sign messages, e.g. "Revan"
+  your_channel: ""         # your clip channel, e.g. "youtube.com/@yourclips" (makes you look legit)
+  daily_max: 10            # messages per 24h across all channels
+  min_gap_minutes: 10
+  hours: [10, 20]          # only send between these local hours
+  followup: true
+  followup_days: 5         # one polite follow-up if they haven't replied
+
 # Streamer discovery (python -m clipfarm discover). Run it a few times a day at different hours.
 #   viewers: the audience size most likely to say yes to a clipper (bigger streamers rarely reply)
 #   languages: stream languages to include ([] = any)
