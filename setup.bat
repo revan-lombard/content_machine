@@ -11,6 +11,10 @@ python -m venv .venv
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+if not exist secrets.yaml copy secrets.example.yaml secrets.yaml >nul
 echo.
-echo Done. Start the hotkey logger with:  log.bat "escape 5 stars with no car"
+echo Done. Next:
+echo   1. Fill in secrets.yaml (Twitch keys first) - steps are in the file.
+echo   2. Add a streamer you have permission for to sources.yaml.
+echo   3. Run twitch.bat, then review.bat.
 pause
