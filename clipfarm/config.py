@@ -37,6 +37,8 @@ DEFAULTS: dict = {
                 "tiktok": {"daily_max": 5, "mode": "inbox", "privacy": "PUBLIC_TO_EVERYONE"},
                 "x": {"daily_max": 8}},
     "tiktok": {"port": 8899},
+    "kick": {"hours": 48, "categories": ["Grand Theft Auto"],
+             "block_categories": ["Slots", "Casino", "Gambling", "Betting"]},
     "x": {"checkpoints": [48, 168], "monthly_read_limit": 1000, "monthly_post_limit": 150, "port": 8898},
     "hashtags": ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"],
 }

@@ -77,8 +77,15 @@ def load_plan(path: str | Path, get_source) -> dict:
     out = []
     for e in entries:
         src = get_source(e["source"])
+        label = e.get("label") or f"@{src['login']}"
+        if e.get("clip"):  # a clip link (Kick clips, where VODs can't be downloaded reliably)
+            at = parse_time(e["at"]) if e.get("at") is not None else None  # None = near the clip's end
+            out.append({"source": src, "clip": str(e["clip"]).strip(), "vod": None, "at": at, "label": label})
+            continue
+        if not e.get("vod"):
+            raise SystemExit(f"{e['source']}: give either vod: (+ time) or clip: (a clip link)")
         vod, at = parse_vod(e["vod"], e.get("at"))
-        out.append({"source": src, "vod": vod, "at": at, "label": e.get("label") or f"@{src['login']}"})
+        out.append({"source": src, "vod": vod, "at": at, "label": label})
     plan["entries"] = out
     plan.setdefault("layout", "sequence")
     plan.setdefault("align", True)

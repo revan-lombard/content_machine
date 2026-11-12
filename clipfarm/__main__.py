@@ -40,10 +40,12 @@ def main() -> None:
 
     sub.add_parser("sources", help="check which streamers in sources.yaml are approved")
 
-    p = sub.add_parser("twitch", help="clip an approved streamer's VOD (default: their latest)")
+    p = sub.add_parser("clip", aliases=["twitch"],
+                       help="clip an approved streamer (Twitch: latest VOD; Kick: recent viewer clips)")
     p.add_argument("source", nargs="?", help="name from sources.yaml (omit with --all)")
-    p.add_argument("--all", action="store_true", help="latest VOD of every approved source")
-    p.add_argument("--vod", help="a specific VOD id (from twitch.tv/videos/<id>)")
+    p.add_argument("--all", action="store_true", help="every approved streamer, Twitch and Kick")
+    p.add_argument("--vod", help="Twitch: a specific VOD id (from twitch.tv/videos/<id>)")
+    p.add_argument("--hours", type=float, help="Kick: use clips from the last N hours (default 48)")
     p.add_argument("--chat", help="chat replay JSON, if you downloaded it yourself")
     p.add_argument("--max", type=int, help="most clips to make")
     p.add_argument("--no-finish", action="store_true", help="stop after rough cuts")
@@ -140,7 +142,7 @@ def main() -> None:
     if a.cmd == "kit":
         pipeline.kit(Path(a.session_out))
         return
-    if a.cmd == "twitch":
+    if a.cmd in ("clip", "twitch"):
         _twitch(cfg, a)
         return
     if a.cmd == "react":
@@ -196,12 +198,22 @@ def _twitch(cfg: dict, a) -> None:
         names = [a.source]
     else:
         raise SystemExit("Name a source from sources.yaml, or use --all")
-    helix = twitch.Helix()
+    helix = None
     caps = False if a.no_captions else None
     for name in names:
         src = sources.get(name)  # refuses anything without permission
-        session_out, dirs = pipeline.build_twitch(cfg, src, vod_id=a.vod if not a.all else None,
-                                                  chat_file=a.chat, max_n=a.max, helix=helix)
+        try:
+            if src.get("platform", "twitch") == "kick":
+                session_out, dirs = pipeline.build_kick(cfg, src, hours=a.hours, max_n=a.max)
+            else:
+                helix = helix or twitch.Helix()
+                session_out, dirs = pipeline.build_twitch(cfg, src, vod_id=a.vod if not a.all else None,
+                                                          chat_file=a.chat, max_n=a.max, helix=helix)
+        except SystemExit as e:
+            if not a.all:
+                raise
+            print(f"{name}: {e}\n")  # with --all, one streamer's problem doesn't stop the rest
+            continue
         if a.no_finish:
             continue
         print("Finishing clips...")
@@ -351,6 +363,14 @@ def _facecam(a) -> None:
     out.parent.mkdir(exist_ok=True)
     if a.file:
         video, at = a.file, a.at
+    elif src.get("platform") == "kick":
+        from . import kick
+        top = kick.moments(kick.clips(src["login"], hours=24 * 14), 1)
+        if not top:
+            raise SystemExit("No recent Kick clips to take a frame from - use --file with a video of their stream")
+        video = out.with_suffix(".mp4")
+        kick.download(top[0], video)
+        at = 1.0
     else:
         h = twitch.Helix()
         vod = h.vod(a.vod) if a.vod else h.vods(h.user_id(src["login"]), 1)[0]

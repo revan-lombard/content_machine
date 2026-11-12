@@ -160,6 +160,31 @@ In Windows **Task Scheduler**, go to **Create Basic Task → Daily**, choose
 **Start a program**, and point it at `twitch.bat` in this folder. Clips will be waiting
 for you to review.
 
+## Clipping Kick streamers
+
+Add a Kick streamer to `sources.yaml` with `platform: kick` and `login:` set to the name in
+their `kick.com/<name>` URL, plus permission proof as usual (for example N3on's clipping
+program). Then `twitch.bat` (or `python -m clipfarm clip NAME`) handles them along with your
+Twitch streamers.
+
+- **It works from viewer clips.** Kick has no official API for clips or past streams, and
+  downloading past streams broke in a 2026 Kick change. Kick clips (up to 3 min) already contain
+  the moment, so it picks the most-clipped, most-viewed clips from the last 48h (`--hours 168`
+  for a week), groups clips of the same moment, and makes clips in the usual formats.
+- **GTA only, never gambling.** Only clips whose category contains "Grand Theft Auto" are used.
+  Change that per streamer with `rules: categories: [...]` (`[]` = any category). Clips in
+  gambling categories (Slots, Casino, Gambling, Betting) are **always** skipped, because
+  promoting gambling gets clip accounts banned.
+- **Cloudflare.** Kick blocks scripts, so requests imitate Chrome (the `curl_cffi` package).
+  If Kick stops working, run this in `shell.bat` first:
+  ```
+  pip install -U yt-dlp curl_cffi
+  ```
+- **Reactions.** In a reaction plan, give a Kick streamer a clip link instead of a VOD:
+  `clip: https://kick.com/n3on/clips/clip_...` (optional `at:` = seconds into the clip; default
+  near the end). `react find` searches Kick clip titles too.
+- **No chat replay for Kick**, so moments come from viewer clips only.
+
 ## Multi-streamer reactions
 
 This format shows several streamers hitting **the same moment** (a mission, a cutscene, a

@@ -123,6 +123,15 @@ publish:
   x:
     daily_max: 8            # X bills each post (~$0.015 in 2026); see x.monthly_post_limit
 
+# Kick streamers (platform: kick in sources.yaml). Works from viewer clips made in the last
+# `hours`. Only clips whose category contains one of `categories` are used (set a streamer's own
+# list with rules: categories: [...] in sources.yaml; [] = any). Clips in `block_categories`
+# are ALWAYS skipped - promoting gambling gets clip accounts banned.
+kick:
+  hours: 48
+  categories: ["Grand Theft Auto"]
+  block_categories: ["Slots", "Casino", "Gambling", "Betting"]
+
 # TikTok stats sign-in. Register http://localhost:<port>/callback/ as a redirect URI in your app.
 tiktok:
   port: 8899

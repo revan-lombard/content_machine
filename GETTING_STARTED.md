@@ -64,6 +64,7 @@ folder contains `secrets.yaml`.
 - [ ] **Add your streamer to `sources.yaml`:**
   1. Copy the `example` block.
   2. Set `name`, `login` (from `twitch.tv/<login>`), `permission.type` and `permission.proof`.
+     For a Kick streamer, also add `platform: kick` and use the name from `kick.com/<login>`.
   3. Set `enabled: true`.
   4. Copy the campaign's rules: `credit`, `hashtags`, `max_length`, and `platforms` if the
      campaign limits where you can post.

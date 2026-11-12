@@ -353,6 +353,79 @@ def build_twitch(cfg: dict, src: dict, vod_id: str | None = None, chat_file: str
     return session_out, out
 
 
+# ---------------------------------------------------------------- Kick
+
+def build_kick(cfg: dict, src: dict, hours: float | None = None, max_n: int | None = None,
+               get=None, rng=None, now=None) -> tuple[Path, list[Path]]:
+    """Most-viewed recent viewer clips of an approved Kick streamer -> clips in the formats under
+    test. GTA categories only; gambling categories always skipped."""
+    from datetime import datetime, timezone
+
+    from . import kick
+    m, kc = cfg["moments"], cfg.get("kick") or {}
+    rules = src.get("rules") or {}
+    hours = float(hours or kc.get("hours", 48))
+    wanted = rules.get("categories", kc.get("categories", []))
+    blocked = list(kc.get("block_categories", [])) + list(rules.get("block_categories", []))
+    all_clips = kick.clips(src["login"], hours=hours, get=get, now=now)
+    usable = [c for c in all_clips if kick.allowed(c, wanted, blocked)]
+    skipped = len(all_clips) - len(usable)
+    print(f"{src['name']} (Kick): {len(all_clips)} clips in the last {hours:.0f}h, {len(usable)} usable"
+          + (f" ({skipped} outside {wanted or 'any'} or in a blocked category)" if skipped else ""))
+    picked = kick.moments(usable, max_n or m["max"])
+    if not picked:
+        raise SystemExit("  no usable clips: nobody clipped a GTA moment in that window "
+                         "(try --hours 168, or check the streamer's categories)")
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d")
+    session_out = ROOT / "out" / f"{src['name']}-kick-{stamp}"
+    session_out.mkdir(parents=True, exist_ok=True)
+    hf = float(m["hook_flash"])
+    length = float(m["length"])
+    length = max(float(rules.get("min_length", 0)) - hf, length)
+    length = min(float(rules.get("max_length", 600)) - hf, length)
+    credit = rules.get("credit") or f"@{src['login']}"
+    tags = rules.get("hashtags") or cfg["hashtags"]
+    facecam = src.get("facecam")
+    common = {"credit": credit, "layout": "split" if facecam else "single", "hashtags": tags}
+    source_meta = lambda c: {"platform": "kick", "login": src["login"], "clip": c["id"], "url": c["page"],
+                             "category": c["category"], "permission": (src.get("permission") or {}).get("type")}
+    out, pieces = [], []
+    with db() as con:
+        for i, c in enumerate(picked, 1):
+            piece = session_out / "sources" / f"{i:02d}.mp4"
+            piece.parent.mkdir(exist_ok=True)
+            try:
+                kick.download(c, piece)
+            except RuntimeError as e:
+                print(f"  {i:02d}  skipped: {str(e)[:200]}")
+                continue
+            total = ff.duration(piece)
+            peak = max(0.5, total - 4.0)  # people clip right after the moment: the payoff is near the end
+            pieces.append((c, piece, peak, total))
+            titles = c["titles"]
+            has_title = any(8 <= len(t) <= 60 for t in titles)
+            fmt, style = pick_variant(cfg, con, has_title, rng)
+            text = writer.moment_text(cfg, c["category"] or "GTA", i, context=titles,
+                                      streamer=src["login"], hook_style=style)
+            clip_dir = session_out / "moments" / f"{i:02d}"
+            beats = formats.render_single(cfg, fmt, piece, peak, total, clip_dir, text["hook"],
+                                          length=length, facecam=facecam)
+            meta = {"kind": "moment", "format": fmt, "hook_style": text["hook_style"],
+                    "length": round(ff.duration(clip_dir / "rough.mp4"), 2),
+                    "found_by": "; ".join(c["reasons"]), "source_at": 0,
+                    "source": source_meta(c), **common,
+                    "title": text["title"], "description": text["description"], "beats": beats}
+            _save_script(clip_dir, meta)
+            print(f"  {i:02d}  {fmt:<12} {text['hook_style']:<12} score {c['score']:4.1f} ({c['reasons'][0]})")
+            out.append(clip_dir)
+        if _want_countdown(cfg, con, len(pieces)):
+            best = sorted(pieces, key=lambda x: -x[0]["score"])[:3]
+            out.append(_countdown(cfg, session_out, [(p, pk, t) for _, p, pk, t in best],
+                                  f"Top 3 moments from {src['login']}'s stream",
+                                  {**common, "source": source_meta(best[0][0])}, facecam=facecam))
+    return session_out, out
+
+
 # ---------------------------------------------------------------- multi-streamer reactions
 
 def _slug(text: str) -> str:
@@ -361,14 +434,31 @@ def _slug(text: str) -> str:
 
 
 def find_react(cfg: dict, keywords: list[str], names: list[str], helix=None, vods_back: int = 5,
-               plan_dir: Path | None = None) -> Path:
+               plan_dir: Path | None = None, kick_get=None) -> Path:
     """Search approved streamers' recent viewer clips for the keywords; draft a reaction plan."""
     from . import sources, twitch
-    h = helix or twitch.Helix()
+    h = helix
     words = [k.lower() for k in keywords]
     lines, found = [], 0
     for name in names:
         src = sources.get(name)  # refuses streamers without permission
+        if src.get("platform") == "kick":
+            from . import kick
+            kc = cfg.get("kick") or {}
+            ks = [c for c in kick.clips(src["login"], hours=24 * 2 * vods_back, get=kick_get)
+                  if kick.allowed(c, (src.get("rules") or {}).get("categories", kc.get("categories", [])),
+                                  kc.get("block_categories", []))
+                  and any(w in c["title"].lower() for w in words)]
+            ks.sort(key=lambda c: -c["views"])
+            if not ks:
+                lines.append(f"  # - source: {src['name']}   # no Kick clip matched {keywords} - add clip: <link> by hand")
+                continue
+            found += 1
+            lines.append(f"  - source: {src['name']}\n    clip: {ks[0]['page']}   # \"{ks[0]['title']}\" ({ks[0]['views']} views)")
+            for c in ks[1:3]:
+                lines.append(f"    # other match: {c['page']}  \"{c['title']}\" ({c['views']} views)")
+            continue
+        h = h or twitch.Helix()
         uid = h.user_id(src["login"])
         hits = []
         for vod in h.vods(uid, vods_back):
@@ -424,6 +514,13 @@ def build_react(cfg: dict, plan_path: str | Path, sources_file=None) -> Path:
     for i, e in enumerate(entries):
         piece = session_out / "sources" / f"{i:02d}-{e['source']['name']}.mp4"
         piece.parent.mkdir(parents=True, exist_ok=True)
+        if e.get("clip"):
+            from . import kick
+            kick.download(e["clip"], piece)
+            t = e["at"] if e["at"] is not None else max(0.5, ff.duration(piece) - 4.0)
+            items.append({"file": piece, "t": t, "label": e["label"], "facecam": e["source"].get("facecam"),
+                          "src": e["source"], "vod": None, "clip": e["clip"], "at": t})
+            continue
         start = max(0.0, e["at"] - pre_dl)
         twitch.download_section(e["vod"], start, e["at"] + post_dl, piece)
         items.append({"file": piece, "t": e["at"] - start, "label": e["label"],
@@ -460,8 +557,9 @@ def build_react(cfg: dict, plan_path: str | Path, sources_file=None) -> Path:
             "credit": credit if len(credit) <= 60 and not grid else "",
             "credits_all": credit, "layout": "split" if any(it["facecam"] for it in items) else "single",
             "labels": [list(x) for x in labels], "hashtags": tags,
-            "sources": [{"platform": "twitch", "login": it["src"]["login"], "vod": it["vod"],
-                         "url": f"https://www.twitch.tv/videos/{it['vod']}?t={int(it['at'])}s",
+            "sources": [{"platform": it["src"].get("platform", "twitch"), "login": it["src"]["login"],
+                         "vod": it["vod"],
+                         "url": it.get("clip") or f"https://www.twitch.tv/videos/{it['vod']}?t={int(it['at'])}s",
                          "permission": (it["src"].get("permission") or {}).get("type"),
                          "sync": it.get("sync")} for it in items],
             "beats": beats}

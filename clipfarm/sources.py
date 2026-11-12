@@ -31,10 +31,10 @@ def problems(src: dict) -> list[str]:
     out = []
     if not src.get("enabled", True):
         out.append("enabled is false")
-    if src.get("platform", "twitch") != "twitch":
-        out.append(f"platform '{src.get('platform')}' is not supported yet (twitch only)")
+    if src.get("platform", "twitch") not in ("twitch", "kick"):
+        out.append(f"platform '{src.get('platform')}' is not supported (twitch or kick)")
     if not src.get("login"):
-        out.append("missing login (the channel name in the twitch.tv URL)")
+        out.append("missing login (the channel name in the twitch.tv/... or kick.com/... URL)")
     perm = src.get("permission") or {}
     if perm.get("type") not in PERMISSION_TYPES:
         out.append(f"permission.type must be one of: {', '.join(PERMISSION_TYPES)}")

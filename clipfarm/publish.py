@@ -105,7 +105,7 @@ def _iso(dt: datetime) -> str:
 
 def _allowed_by_source(meta: dict, platform: str, sources_file=None) -> str | None:
     """None if this clip may go to this platform, else why not."""
-    srcs = [x for x in (meta.get("sources") or [meta.get("source") or {}]) if x.get("platform") == "twitch"]
+    srcs = [x for x in (meta.get("sources") or [meta.get("source") or {}]) if x.get("platform") in ("twitch", "kick")]
     for src in srcs:  # multi-streamer clips need every streamer's permission and campaign OK
         try:
             s = sources.get(src["login"], sources_file)
