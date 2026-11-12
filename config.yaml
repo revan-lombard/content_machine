@@ -123,6 +123,15 @@ publish:
   x:
     daily_max: 8            # X bills each post (~$0.015 in 2026); see x.monthly_post_limit
 
+# Streamer discovery (python -m clipfarm discover). Run it a few times a day at different hours.
+#   viewers: the audience size most likely to say yes to a clipper (bigger streamers rarely reply)
+#   languages: stream languages to include ([] = any)
+discovery:
+  games: ["Grand Theft Auto VI", "Grand Theft Auto V"]
+  languages: ["en"]
+  viewers: [100, 8000]
+  youtube_queries: ["GTA 6 live", "GTA V RP live"]   # each costs 100 of YouTube's 10,000 free daily units
+
 # YouTube streamers (platform: youtube in sources.yaml, login: their @handle). Moments come from
 # the live chat replay and YouTube's "most replayed" graph. If yt-dlp says "confirm you're not a
 # bot", set cookies_from_browser to the browser you're signed in to YouTube with (e.g. chrome).

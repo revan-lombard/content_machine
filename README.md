@@ -174,6 +174,32 @@ In Windows **Task Scheduler**, go to **Create Basic Task → Daily**, choose
 **Start a program**, and point it at `twitch.bat` in this folder. Clips will be waiting
 for you to review.
 
+## Finding streamers to clip
+
+Run `discover.bat` (or `python -m clipfarm discover`) a few times a day, or schedule it.
+
+**What each run does:** it records who is live in the GTA categories right now on:
+- **Twitch:** your existing keys.
+- **YouTube:** your YouTube API key. Each search costs 100 of the free 10,000 daily units.
+- **Kick:** optional. Add a Kick developer app's keys under `kick:` in `secrets.yaml`.
+
+**How it ranks them:** over days, by how they fit what makes a good clipping partner:
+- **Consistency:** how many of the last 14 days they streamed GTA.
+- **Size:** whether their average audience is in `discovery: viewers` (default 100–8,000).
+  Mid-size streamers are the most likely to say yes. Very big ones rarely reply, and very
+  small ones give clips little reach.
+- **Clippability (Twitch):** how many clips their viewers made in the last 7 days, and their views.
+- **Hints:** whether their bio or stream title mentions clips, clippers or editors.
+
+**The Discover tab** on the review page lists the best candidates. Each one has:
+- **Copy message:** a ready-to-send permission request.
+- **Copy sources.yaml entry:** a prefilled entry, disabled until you add their yes as proof.
+- **Status:** New, Contacted, Said yes, Said no or Ignore. Streamers who said no, were ignored,
+  or are already in `sources.yaml` are hidden.
+
+**Discovery never grants permission.** A streamer is only clipped once you've added their
+"yes" to `sources.yaml` and set `enabled: true`.
+
 ## Clipping YouTube streamers
 
 Add a YouTube streamer to `sources.yaml` with `platform: youtube` and `login:` set to their

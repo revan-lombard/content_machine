@@ -208,6 +208,8 @@ nothing) to type in.
 
 - [ ] **Make it automatic:** Task Scheduler → **Create Basic Task** → **Daily** → **Start a program**
       → pick `twitch.bat`. Clips will be waiting for you every morning.
+- [ ] **Find more streamers automatically:** schedule `discover.bat` to run 2–3 times a day at
+      different hours. Then check `review.bat` → **Discover** weekly and message the top few.
 - [ ] Put `publish.bat` in your Startup folder (Win+R → `shell:startup`) so it starts with Windows.
 
 ---

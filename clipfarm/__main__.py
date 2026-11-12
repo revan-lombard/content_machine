@@ -93,6 +93,10 @@ def main() -> None:
     q.add_argument("--no-finish", action="store_true")
     q.add_argument("--no-captions", action="store_true")
 
+    p = sub.add_parser("discover", help="find GTA streamers worth asking for clipping permission")
+    p.add_argument("--platform", action="append", choices=["twitch", "kick", "youtube"])
+    p.add_argument("--top", type=int, default=15, help="how many to list")
+
     a = ap.parse_args()
     cfg = config.load(a.config)
 
@@ -124,6 +128,9 @@ def main() -> None:
         print("Logged.")
         return
 
+    if a.cmd == "discover":
+        _discover(cfg, a)
+        return
     if a.cmd == "sources":
         from . import sources
         sources.report()
@@ -224,6 +231,40 @@ def _twitch(cfg: dict, a) -> None:
             pipeline.finish(cfg, d, use_captions=caps)
         post = pipeline.kit(session_out)
         print(f"Review: {post / 'review.html'}\n")
+
+
+def _discover(cfg: dict, a) -> None:
+    from . import discover, publish, sources, twitch
+    sec = publish._secrets()
+    helix = None
+    if (sec.get("twitch") or {}).get("client_id"):
+        try:
+            helix = twitch.Helix()
+        except Exception as e:
+            print(f"Twitch: couldn't sign in ({str(e)[:120]})")
+    kick_creds = sec.get("kick") if (sec.get("kick") or {}).get("client_id") else None
+    yt_key = (sec.get("youtube") or {}).get("api_key")
+    with pipeline.db() as con:
+        res = discover.run(cfg, con, helix=helix, kick_creds=kick_creds, yt_key=yt_key, platforms=a.platform)
+        for plat in ("twitch", "kick", "youtube"):
+            if plat in res:
+                v = res[plat]
+                print(f"{plat:<8} {v if isinstance(v, str) else f'{v} live GTA streams recorded'}")
+            elif not a.platform or plat in a.platform:
+                print(f"{plat:<8} skipped (no keys in secrets.yaml)")
+        approved = {(s.get("platform", "twitch"), str(s.get("login", "")).lower()) for s in sources.load_all()}
+        ranked = [d for d in discover.rank(con, cfg, approved, datetime_now())
+                  if not d["in_sources"] and d["status"] not in ("no", "ignore")][:a.top]
+    print(f"\nBest streamers to ask (open review.bat -> Discover for messages and sources.yaml entries):")
+    print(f"  {'name':<22}{'where':<9}{'avg viewers':>12}{'days':>6}{'clips/7d':>9}  hint")
+    for d in ranked:
+        print(f"  {d['name'][:21]:<22}{d['platform']:<9}{d['avg_viewers']:>12,.0f}{d['days_seen']:>6}"
+              f"{(d['clips_7d'] if d['clips_7d'] is not None else '-'):>9}  {'mentions clipping' if d['hint'] else ''}")
+
+
+def datetime_now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
 
 
 def _connect(cfg: dict, a) -> None:

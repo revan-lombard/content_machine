@@ -37,6 +37,8 @@ DEFAULTS: dict = {
                 "tiktok": {"daily_max": 5, "mode": "inbox", "privacy": "PUBLIC_TO_EVERYONE"},
                 "x": {"daily_max": 8}},
     "tiktok": {"port": 8899},
+    "discovery": {"games": ["Grand Theft Auto VI", "Grand Theft Auto V"], "languages": ["en"],
+                  "viewers": [100, 8000], "youtube_queries": ["GTA 6 live", "GTA V RP live"]},
     "youtube_live": {"use_chat": True, "use_heatmap": True, "cookies_from_browser": ""},
     "kick": {"hours": 48, "categories": ["Grand Theft Auto"],
              "block_categories": ["Slots", "Casino", "Gambling", "Betting"]},

@@ -259,6 +259,7 @@ const PHASES = [
   { id: "p6", label: "Phase 6", title: "Make it run itself", time: "10m",
     steps: [
       { id: "sched", text: "Task Scheduler → Create Basic Task → Daily → Start a program → pick twitch.bat." },
+      { id: "discover", text: "Find more streamers automatically: schedule discover.bat 2–3 times a day at different hours, then check review.bat → Discover weekly and message the top few." },
       { id: "startup", text: "Put publish.bat in your Startup folder so it starts with Windows.", cmds: ["shell:startup"], note: "Paste that into Win+R." },
       { id: "backup", text: "Back up data\\tracker.db, secrets.yaml and sources.yaml somewhere safe. Never share secrets.yaml." },
       { id: "update", text: "When new features are added, update, then run setup.bat once.", cmds: ["git pull"] },

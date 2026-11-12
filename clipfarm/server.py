@@ -40,6 +40,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}.sub{color:
 .tag{display:inline-block;background:var(--accent-soft);color:var(--ink);border-radius:4px;padding:1px 7px;font-size:12px;margin-right:4px}
 .row{display:grid;grid-template-columns:90px 1fr auto;gap:8px;align-items:center;border-top:1px solid var(--line);padding:7px 0}
 .row .cap{color:var(--ink2);font-size:12.5px;white-space:pre-wrap;max-height:3.2em;overflow:hidden}
+select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 6px;font:inherit}
 input{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:5px 7px;font:inherit;min-width:0}
 button{background:var(--accent);color:#04201a;border:0;border-radius:5px;padding:5px 11px;font-weight:600;cursor:pointer}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
@@ -65,6 +66,7 @@ async function posted(btn,clip,platform){const url=btn.parentElement.querySelect
 async function stats(btn,post){const f=btn.closest('.stats');const v=n=>f.querySelector('[name='+n+']').value||0;
  if(!f.querySelector('[name=views]').value){alert('Enter at least the views');return}
  if(await api('/api/stats',{post_id:post,views:v('views'),likes:v('likes'),comments:v('comments'),shares:v('shares')}))location.reload()}
+async function prospect(sel,platform,login){if(await api('/api/prospect',{platform,login,status:sel.value}))sel.closest('tr').dataset.status=sel.value}
 async function setStatus(clip,status){if(await api('/api/status',{clip_id:clip,status}))location.reload()}
 function cp(btn,text){navigator.clipboard.writeText(text);btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1200)}
 """
@@ -72,7 +74,8 @@ function cp(btn,text){navigator.clipboard.writeText(text);btn.textContent='Copie
 
 def page(title: str, body: str, active: str) -> bytes:
     nav = "".join(f'<a href="{h}" class="{"on" if k == active else ""}">{t}</a>'
-                  for k, h, t in (("review", "/", "Review & post"), ("dash", "/dashboard", "Performance")))
+                  for k, h, t in (("review", "/", "Review & post"), ("dash", "/dashboard", "Performance"),
+                                  ("discover", "/discover", "Discover")))
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' "
             f"content='width=device-width,initial-scale=1'><title>{E(title)}</title><style>{CSS}</style>"
             f"</head><body><main><nav>{nav}</nav>{body}</main><script>{JS}</script></body></html>").encode()
@@ -310,6 +313,52 @@ def dashboard_page(con, cfg) -> bytes:
 
 # ---------------------------------------------------------------- server
 
+def discover_page(con, cfg, show_all: bool) -> bytes:
+    from datetime import datetime, timezone
+    from . import discover, sources
+    discover.setup(con)
+    approved = {(x.get("platform", "twitch"), str(x.get("login", "")).lower()) for x in sources.load_all()}
+    ranked = discover.rank(con, cfg, approved, datetime.now(timezone.utc))
+    hidden = [d for d in ranked if d["in_sources"] or d["status"] in ("no", "ignore")]
+    rows_src = ranked if show_all else [d for d in ranked if d not in hidden]
+    lo, hi = (cfg.get("discovery") or {}).get("viewers", [100, 8000])
+    rows = []
+    for d in rows_src[:60]:
+        opts = "".join(f'<option value="{st}"{" selected" if d["status"] == st else ""}>{label}</option>'
+                       for st, label in (("new", "New"), ("contacted", "Contacted"), ("yes", "Said yes"),
+                                         ("no", "Said no"), ("ignore", "Ignore")))
+        plat, login = E(json.dumps(d["platform"])), E(json.dumps(d["login"]))
+        badges = "".join(f'<span class="tag">{t}</span>' for t in
+                         (["mentions clipping"] if d["hint"] else []) + (["in sources"] if d["in_sources"] else [])
+                         + ([d["size_fit"]] if d["size_fit"] != "in range" else []))
+        clips = "–" if d["clips_7d"] is None else f'{d["clips_7d"]} ({_fmt_n(d["clip_views_7d"])} views)'
+        rows.append(
+            f'<tr data-status="{d["status"]}"><td><a href="{E(d["url"])}" target="_blank" rel="noopener"><b>{E(d["name"])}</b></a>'
+            f'<div class="done">{E(PLATFORM_NAMES.get(d["platform"], d["platform"]))} · {E((d["last_title"] or "")[:70])}</div>'
+            f'<div>{badges}</div></td>'
+            f'<td class="n">{_fmt_n(d["avg_viewers"])}</td><td class="n">{d["days_seen"]}</td>'
+            f'<td class="n hide-sm">{clips}</td>'
+            f'<td><div style="display:flex;gap:6px;flex-wrap:wrap">'
+            f'<button class="ghost" onclick="cp(this,{E(json.dumps(discover.dm(d)))})">Copy message</button>'
+            f'<button class="ghost" onclick="cp(this,{E(json.dumps(discover.sources_entry(d)))})">Copy sources.yaml entry</button>'
+            f'<select onchange="prospect(this,{plat},{login})">{opts}</select></div></td></tr>')
+    toggle = '<a href="/discover?all=1">show hidden</a>' if not show_all else '<a href="/discover">hide them</a>'
+    head = (f"<h1>Discover</h1><p class='sub'>GTA streamers worth asking for permission, best first. Ranked by how often "
+            f"they stream GTA (last 14 days), whether their audience is {lo:,}–{hi:,} viewers (the size most likely to "
+            f"say yes), how much their viewers clip them, and whether their bio or title mentions clipping. Run "
+            f"<code>discover.bat</code> a few times a day to build this up. {len(hidden)} hidden (already in "
+            f"sources.yaml, said no, or ignored) · {toggle}</p>"
+            f"<div class='note'>This only suggests who to ask. Add someone to sources.yaml after they say yes, with "
+            f"their yes as the proof.</div>")
+    if not rows:
+        table = "<div class='card'>No streamers recorded yet. Run <code>discover.bat</code> while GTA streams are live.</div>"
+    else:
+        table = ("<div class='card' style='overflow-x:auto'><table><tr><th>Streamer</th><th class='n'>Avg viewers</th>"
+                 "<th class='n'>Days seen</th><th class='n hide-sm'>Clips last 7 days</th><th>Ask</th></tr>"
+                 + "".join(rows) + "</table></div>")
+    return page("Discover", head + table, "discover")
+
+
 def _auto_platforms(cfg) -> list[str]:
     """Platforms the publisher is set up for (config + credentials present)."""
     from . import publish
@@ -340,6 +389,8 @@ def make_handler(cfg):
                     return self._send(200, review_page(con, bool(q.get("all")), _auto_platforms(cfg)))
                 if u.path == "/dashboard":
                     return self._send(200, dashboard_page(con, cfg))
+                if u.path == "/discover":
+                    return self._send(200, discover_page(con, cfg, bool(q.get("all"))))
                 if u.path == "/media":
                     row = con.execute("SELECT path FROM clips WHERE id=?", (q.get("clip", [""])[0],)).fetchone()
                     if row:
@@ -385,6 +436,14 @@ def make_handler(cfg):
                         if not str(data.get("url", "")).startswith("http"):
                             raise ValueError("That doesn't look like a link")
                         tracker.record_post(con, data["clip_id"], data["platform"], data["url"])
+                    elif self.path == "/api/prospect":
+                        from . import discover
+                        if data.get("status") not in discover.STATUSES:
+                            raise ValueError("unknown status")
+                        discover.setup(con)
+                        if not con.execute("UPDATE prospects SET status=? WHERE platform=? AND login=?",
+                                           (data["status"], data["platform"], data["login"])).rowcount:
+                            raise ValueError("unknown streamer")
                     elif self.path == "/api/status":
                         tracker.set_status(con, data["clip_id"], data["status"])
                     elif self.path == "/api/stats":
