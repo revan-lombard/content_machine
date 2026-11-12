@@ -1,5 +1,7 @@
 # GTA 6 Clip Farm
 
+**New here? Follow [GETTING_STARTED.md](GETTING_STARTED.md), a step-by-step setup checklist.**
+
 There are two ways to feed it:
 
 - **Twitch streamers you have permission to clip.** This is the main mode. It finds the
