@@ -63,7 +63,7 @@ def _save_script(clip_dir: Path, meta: dict) -> None:
     src = meta.get("source") or (meta.get("sources") or [{}])[0]
     with db() as con:
         who = ", ".join(x["login"] for x in meta["sources"]) if meta.get("sources") else src.get("login", "own")
-        tracker.register_clip(con, cid, source=who, fmt=meta.get("format", ""),
+        tracker.register_clip(con, cid, source=who, source_platform=tracker.source_platform_of(meta), fmt=meta.get("format", ""),
                               hook_style=meta.get("hook_style", ""),
                               length=float(meta.get("length") or 0), title=meta.get("title", ""),
                               path=str(clip_dir.resolve()))

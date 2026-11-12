@@ -57,6 +57,8 @@ def connect(path: str | Path) -> sqlite3.Connection:
     cols = {r[1] for r in con.execute("PRAGMA table_info(clips)")}
     if "status" not in cols:
         con.execute("ALTER TABLE clips ADD COLUMN status TEXT DEFAULT 'new'")  # new | approved | rejected
+    if "source_platform" not in {r[1] for r in con.execute("PRAGMA table_info(clips)")}:
+        con.execute("ALTER TABLE clips ADD COLUMN source_platform TEXT")  # twitch | kick | youtube | own | mixed
     if "external_id" not in {r[1] for r in con.execute("PRAGMA table_info(posts)")}:
         con.execute("ALTER TABLE posts ADD COLUMN external_id TEXT")
     con.commit()
@@ -74,12 +76,13 @@ def set_status(con, clip_id: str, status: str) -> None:
 # ---------------------------------------------------------------- logging
 
 def register_clip(con, clip_id: str, *, source: str = "", fmt: str = "", hook_style: str = "",
-                  length: float = 0.0, title: str = "", path: str = "") -> None:
-    con.execute("""INSERT INTO clips (id, created, source, format, hook_style, length, title, path)
-                   VALUES (?,?,?,?,?,?,?,?)
+                  length: float = 0.0, title: str = "", path: str = "", source_platform: str = "") -> None:
+    con.execute("""INSERT INTO clips (id, created, source, format, hook_style, length, title, path, source_platform)
+                   VALUES (?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(id) DO UPDATE SET format=excluded.format, hook_style=excluded.hook_style,
-                   length=excluded.length, title=excluded.title, path=excluded.path""",
-                (clip_id, now_iso(), source, fmt, hook_style, length, title, path))
+                   length=excluded.length, title=excluded.title, path=excluded.path,
+                   source=excluded.source, source_platform=excluded.source_platform""",
+                (clip_id, now_iso(), source, fmt, hook_style, length, title, path, source_platform or None))
     con.commit()
 
 
@@ -113,7 +116,7 @@ def post_scores(con, hours: float = 48, now: datetime | None = None) -> list[dic
     """One row per post: views at ~`hours` after posting, and whether it beat its platform's median.
     status: 'scored' | 'pending' (too young) | 'needs_stats' (old enough, no numbers yet)."""
     now = now or datetime.now(timezone.utc)
-    rows = con.execute("""SELECT p.*, c.format, c.hook_style, c.title, c.source
+    rows = con.execute("""SELECT p.*, c.format, c.hook_style, c.title, c.source, c.source_platform
                           FROM posts p JOIN clips c ON c.id = p.clip_id ORDER BY p.posted_at""").fetchall()
     out = []
     for r in rows:
@@ -225,3 +228,86 @@ def mix(con, cfg: dict, dim: str, arms: list[str], draws: int = 4000) -> tuple[d
 def todo(con, hours: float = 48, now: datetime | None = None) -> list[dict]:
     """Posts that are old enough to score but have no numbers (TikTok, Instagram, ... typed in by hand)."""
     return [d for d in post_scores(con, hours, now) if d["status"] == "needs_stats"]
+
+
+
+# ---------------------------------------------------------------- sources
+
+def source_platform_of(meta: dict) -> str:
+    """Where a clip's footage came from: twitch | kick | youtube | own | mixed."""
+    srcs = meta.get("sources") or ([meta["source"]] if meta.get("source") else [])
+    plats = {x.get("platform", "twitch") for x in srcs}
+    return "own" if not plats else plats.pop() if len(plats) == 1 else "mixed"
+
+
+def backfill_source_platforms(con) -> int:
+    """Clips logged before source platforms were tracked: read it from their script.yaml."""
+    import yaml
+    n = 0
+    for r in con.execute("SELECT id, path FROM clips WHERE source_platform IS NULL").fetchall():
+        f = Path(r["path"] or "") / "script.yaml"
+        if not f.exists():
+            continue
+        try:
+            plat = source_platform_of(yaml.safe_load(f.read_text(encoding="utf-8")) or {})
+        except Exception:
+            continue
+        con.execute("UPDATE clips SET source_platform=? WHERE id=?", (plat, r["id"]))
+        n += 1
+    con.commit()
+    return n
+
+
+def source_stats(con, hours: float = 48) -> dict[str, dict[str, dict]]:
+    """Performance by where clips came from: {"platform": {...}, "streamer": {...}}.
+    Each entry: clips made, posts, scored clips, win rate (as for formats), median 48h views,
+    total views so far, engagement. A multi-streamer clip counts for each streamer in it."""
+    clip_rows = con.execute("SELECT id, source, source_platform FROM clips").fetchall()
+    keys = {}
+    for c in clip_rows:
+        streamers = [x.strip() for x in (c["source"] or "own").split(",") if x.strip()] or ["own"]
+        keys[c["id"]] = {"platform": [c["source_platform"] or "unknown"], "streamer": streamers}
+    blank = lambda: {"clips": 0, "posts": 0, "scored": 0, "wins": 0.0, "views48": [], "eng": [], "total_views": 0}
+    out: dict[str, dict[str, dict]] = {"platform": {}, "streamer": {}}
+    for cid, k in keys.items():
+        for dim in out:
+            for name in k[dim]:
+                out[dim].setdefault(name, blank())["clips"] += 1
+    per_clip: dict[str, list[dict]] = {}
+    for d in post_scores(con, hours):
+        for dim in out:
+            for name in keys.get(d["clip_id"], {}).get(dim, []):
+                r = out[dim][name]
+                r["posts"] += 1
+                r["total_views"] += int(d.get("latest_views") or 0)
+        if d["status"] == "scored":
+            per_clip.setdefault(d["clip_id"], []).append(d)
+    for cid, posts in per_clip.items():
+        win = sum(p["win"] for p in posts) / len(posts)
+        for dim in out:
+            for name in keys.get(cid, {}).get(dim, []):
+                r = out[dim][name]
+                r["scored"] += 1
+                r["wins"] += win
+                r["views48"] += [p["views"] for p in posts]
+                r["eng"] += [p["engagement"] for p in posts]
+    for dim in out.values():
+        for r in dim.values():
+            r["win_rate"] = r["wins"] / r["scored"] if r["scored"] else None
+            r["median_views"] = statistics.median(r["views48"]) if r["views48"] else None
+            r["engagement_rate"] = statistics.mean(r["eng"]) if r["eng"] else None
+    return out
+
+
+def source_advice(stats: dict[str, dict], min_scored: int = 10) -> list[str]:
+    """Plain-English suggestions once a streamer has enough scored clips."""
+    tips = []
+    for name, r in sorted(stats.items(), key=lambda kv: -(kv[1]["win_rate"] or 0)):
+        if name == "own" or r["scored"] < min_scored or r["win_rate"] is None:
+            continue
+        if r["win_rate"] >= 0.6:
+            tips.append(f"{name}: clips beat your average {r['win_rate']:.0%} of the time - clip them more often.")
+        elif r["win_rate"] <= 0.35:
+            tips.append(f"{name}: clips beat your average only {r['win_rate']:.0%} of the time - "
+                        f"consider swapping them for another streamer.")
+    return tips

@@ -112,6 +112,20 @@ review.bat      # updates YouTube stats, then opens http://localhost:8765
   Posts that are 48h+ old and still missing numbers are listed at the top: open each one
   and type in its views.
 
+### Which streamers are worth clipping
+
+The Performance tab's **Sources** section scores clips by where their footage came from, the
+same way as formats:
+
+- **By platform:** Twitch, Kick, YouTube, your own gameplay, and mixed (multi-streamer).
+- **By streamer:** each streamer's clips. A multi-streamer reaction clip counts for each
+  streamer in it.
+
+You see clips made, win rate (how often a clip beats your usual views), median 48h views,
+total views and engagement. Once a streamer has 10 or more scored clips, it adds a plain
+suggestion: clip them more often, or consider swapping them for someone else.
+`python -m clipfarm stats` prints the same tables.
+
 ### Where the numbers come from
 
 - **YouTube: automatic.** Create a free YouTube Data API key (steps in

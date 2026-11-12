@@ -201,6 +201,32 @@ def _arm_table(con, cfg, dim: str, arms: list[str], title: str, blurb: str) -> s
             f"<th class='n'>Next mix</th></tr>{''.join(rows)}</table></div>")
 
 
+PLATFORM_NAMES = {"twitch": "Twitch", "kick": "Kick", "youtube": "YouTube", "own": "Your own gameplay",
+                  "mixed": "Mixed (multi-streamer)", "unknown": "Unknown"}
+
+
+def _source_table(title: str, rows: dict[str, dict], blurb: str, names: dict | None = None) -> str:
+    if not rows:
+        return ""
+    trs = []
+    for name, r in sorted(rows.items(), key=lambda kv: (-(kv[1]["win_rate"] if kv[1]["win_rate"] is not None else -1),
+                                                        -kv[1]["clips"])):
+        wr = r["win_rate"]
+        bar = (f'<div class="bar" title="{E(name)}: beat your median on {wr * 100:.0f}% of scored posts">'
+               f'<i style="width:{wr * 100:.1f}%"></i><u></u></div>') if wr is not None else '<span class="done">no scores yet</span>'
+        eng = "–" if r["engagement_rate"] is None else f"{r['engagement_rate'] * 100:.1f}%"
+        trs.append(f"<tr><td><b>{E((names or {}).get(name, name))}</b></td><td class='n'>{r['clips']}</td>"
+                   f"<td class='n'>{r['scored']}</td><td>{bar}</td>"
+                   f"<td class='n'>{'' if wr is None else f'{wr * 100:.0f}%'}</td>"
+                   f"<td class='n hide-sm'>{_fmt_n(r['median_views'])}</td>"
+                   f"<td class='n hide-sm'>{_fmt_n(r['total_views'])}</td><td class='n hide-sm'>{eng}</td></tr>")
+    return (f"<h3 style='font-size:14px;margin:14px 0 6px'>{title}</h3><p class='sub' style='margin-bottom:8px'>{blurb}</p>"
+            f"<div class='card' style='overflow-x:auto'><table><tr><th>Source</th><th class='n'>Clips</th>"
+            f"<th class='n'>Scored</th><th>Win rate <span class='done'>(line = 50%)</span></th><th class='n'></th>"
+            f"<th class='n hide-sm'>Median views</th><th class='n hide-sm'>Total views</th>"
+            f"<th class='n hide-sm'>Engagement</th></tr>{''.join(trs)}</table></div>")
+
+
 def dashboard_page(con, cfg) -> bytes:
     exp = cfg["experiments"]
     hours = exp.get("score_hours", 48)
@@ -246,6 +272,18 @@ def dashboard_page(con, cfg) -> bytes:
     body.append(_arm_table(con, cfg, "hook_style", styles, "Hook styles",
                            "The opening line on screen, tested separately from the format."))
 
+    tracker.backfill_source_platforms(con)
+    ss = tracker.source_stats(con, hours)
+    tips = tracker.source_advice(ss["streamer"])  # once a streamer has 10+ scored clips
+    tip_html = "".join(f"<div class='note' style='background:var(--accent-soft);color:var(--ink)'>{E(t)}</div>"
+                       for t in tips)
+    body.append("<h2>Sources</h2><p class='sub'>Which streamers and platforms your best clips come from, "
+                "scored the same way as formats. A multi-streamer clip counts for each streamer in it.</p>"
+                + tip_html
+                + _source_table("By platform", ss["platform"], "Where the footage came from.", PLATFORM_NAMES)
+                + _source_table("By streamer", ss["streamer"],
+                                "Streamers need about 10 scored clips before their win rate means much."))
+
     plat_rows = []
     for plat in tracker.PLATFORMS:
         vs = [d["views"] for d in scored if d["platform"] == plat][-30:]
@@ -255,7 +293,7 @@ def dashboard_page(con, cfg) -> bytes:
             plat_rows.append(f"<tr><td>{LABELS[plat]}</td><td class='n'>{len(vs)}</td>"
                              f"<td class='n'>{_fmt_n(med)}</td><td class='n'>{_fmt_n(max(vs))}</td></tr>")
     if plat_rows:
-        body.append("<h2>Platforms</h2><div class='card'><table><tr><th>Platform</th><th class='n' style='text-align:right'>Recent scored posts</th>"
+        body.append("<h2>Posting platforms</h2><div class='card'><table><tr><th>Platform</th><th class='n' style='text-align:right'>Recent scored posts</th>"
                     f"<th style='text-align:right'>Median views</th><th style='text-align:right'>Best</th></tr>{''.join(plat_rows)}</table></div>")
 
     top = sorted(scored, key=lambda d: -(math.log1p(d["views"]) - math.log1p(d.get("baseline_views", 0))))[:10]

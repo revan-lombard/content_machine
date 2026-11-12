@@ -346,6 +346,21 @@ def _stats(cfg: dict) -> None:
         todo = tracker.todo(con, exp.get("score_hours", 48))
         if todo:
             print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")
+        tracker.backfill_source_platforms(con)
+        ss = tracker.source_stats(con, exp.get("score_hours", 48))
+        for dim, label in (("platform", "Source platforms"), ("streamer", "Streamers")):
+            rows = sorted(ss[dim].items(), key=lambda kv: -(kv[1]["win_rate"] if kv[1]["win_rate"] is not None else -1))
+            if not rows:
+                continue
+            print(f"\n{label}")
+            print(f"  {'source':<18}{'clips':>6}{'scored':>8}{'win rate':>10}{'median views':>14}")
+            for name, r in rows:
+                wr = r["win_rate"]
+                mv = r["median_views"]
+                print(f"  {name[:17]:<18}{r['clips']:>6}{r['scored']:>8}"
+                      f"{'-' if wr is None else f'{wr * 100:.0f}%':>10}{'-' if mv is None else f'{mv:,.0f}':>14}")
+        for tip in tracker.source_advice(ss["streamer"]):
+            print(f"  -> {tip}")
         for dim, arms in (("format", [f for f in exp["formats"] if f in formats.ALL]),
                           ("hook_style", pipeline._arms(cfg, "hook_style", has_viewer_title=True))):
             st = tracker.arm_stats(con, dim, arms, exp.get("score_hours", 48))
