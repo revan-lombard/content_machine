@@ -113,4 +113,8 @@ publish:
   facebook:
     daily_max: 10           # Meta's hard limit is 30 API Reels per Page per 24h
 
+# TikTok stats sign-in. Register http://localhost:<port>/callback/ as a redirect URI in your app.
+tiktok:
+  port: 8899
+
 hashtags: ["#gta6", "#gta", "#gtavi", "#gaming", "#shorts"]

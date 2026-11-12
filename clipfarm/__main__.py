@@ -67,7 +67,7 @@ def main() -> None:
     p.add_argument("url")
 
     p = sub.add_parser("connect", help="one-time sign-in for auto-posting: youtube or meta")
-    p.add_argument("platform", choices=["youtube", "meta"])
+    p.add_argument("platform", choices=["youtube", "meta", "tiktok"])
     p.add_argument("--token", help="meta: a user access token from Graph API Explorer")
     p.add_argument("--page", help="meta: which Facebook Page, if you manage several")
 
@@ -215,6 +215,15 @@ def _connect(cfg: dict, a) -> None:
     from . import meta_api, publish, youtube_api
     sec = publish._secrets()
     tokens = publish.token_dir(config.ROOT)
+    if a.platform == "tiktok":
+        from . import tiktok_api
+        t = sec.get("tiktok") or {}
+        if not (t.get("client_key") and t.get("client_secret")):
+            raise SystemExit("Add tiktok client_key and client_secret to secrets.yaml first "
+                             "(steps in secrets.example.yaml)")
+        tiktok_api.connect(t["client_key"], t["client_secret"], tokens / "tiktok.json",
+                           port=int(cfg["tiktok"]["port"]))
+        return
     if a.platform == "youtube":
         y = sec.get("youtube_oauth") or {}
         if not (y.get("client_id") and y.get("client_secret")):
@@ -265,10 +274,11 @@ def _print_ig(r: dict, name: str = "Instagram") -> None:
     if r["unmatched"]:
         msg += (f", {r['unmatched']} link(s) not found on the connected account "
                 "(enter those numbers by hand)" if name == "Instagram" else
-                f", {r['unmatched']} link(s) without a video id - use the facebook.com/reel/... link, "
-                "not fb.watch (or enter those numbers by hand)")
+                f", {r['unmatched']} short link(s) without a video id - paste the full "
+                + ("tiktok.com/@you/video/... link, not vm.tiktok.com" if name == "TikTok" else
+                   "facebook.com/reel/... link, not fb.watch") + " (or enter those numbers by hand)")
     if r["failed"]:
-        msg += f", {r['failed']} failed"
+        msg += f", {r['failed']} failed" + (" (not on the connected account?)" if name == "TikTok" else "")
     print(msg)
 
 
@@ -280,6 +290,7 @@ def _refresh_stats(cfg: dict) -> None:
             stats.fetch_youtube(con)
             _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
             _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
+            _print_ig(stats.fetch_tiktok_stats(cfg, con, config.ROOT), "TikTok")
     except Exception as e:  # never let stats stop the publisher
         print(f"  stats refresh failed: {str(e)[:200]}")
 
@@ -293,6 +304,7 @@ def _stats(cfg: dict) -> None:
         from . import publish
         _print_ig(publish.fetch_instagram_stats(cfg, con, config.ROOT))
         _print_ig(publish.fetch_facebook_stats(cfg, con, config.ROOT), "Facebook")
+        _print_ig(stats.fetch_tiktok_stats(cfg, con, config.ROOT), "TikTok")
         todo = tracker.todo(con, exp.get("score_hours", 48))
         if todo:
             print(f"{len(todo)} post(s) need numbers typed in - run: python -m clipfarm review  (Performance tab)")

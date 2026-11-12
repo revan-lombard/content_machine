@@ -1,8 +1,9 @@
 """Fetch view counts for posted clips.
 
 YouTube: automatic with a free API key (public view/like/comment counts).
-TikTok / Instagram / Facebook / X: typed in on the dashboard for now (their stats APIs need
-app reviews or business accounts - next phase).
+TikTok: automatic once connected (fetch_tiktok_stats, Display API).
+Instagram / Facebook: automatic via the Meta connection (publish.py).
+X: typed in on the dashboard.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import urllib.parse
 import urllib.request
 
 from .config import ROOT
-from . import tracker
+from . import net, tracker
 
 YT_ID = re.compile(r"(?:youtube\.com/(?:shorts/|watch\?v=|live/)|youtu\.be/)([A-Za-z0-9_-]{11})")
 
@@ -61,3 +62,53 @@ def fetch_youtube(con, api_key: str | None = None, days: int = 30, fetch=None) -
 def _get(url: str) -> dict:
     with urllib.request.urlopen(url, timeout=20) as r:
         return json.loads(r.read())
+
+
+def fetch_tiktok_stats(cfg: dict, con, root, days: int = 30, now=None) -> dict:
+    """Views, likes, comments and shares for TikTok posts logged with a full tiktok.com link.
+    Same schedule as Instagram/Facebook: hourly under 72h old, daily after."""
+    from datetime import datetime, timedelta, timezone
+
+    from . import tiktok_api
+    from .publish import _due, _iso, _secrets, token_dir
+    res = {"updated": 0, "matched": 0, "unmatched": 0, "failed": 0}
+    tok_file = token_dir(root) / "tiktok.json"
+    t = _secrets().get("tiktok") or {}
+    if not tok_file.exists() or not (t.get("client_key") and t.get("client_secret")):
+        return res
+    now = now or datetime.now(timezone.utc)
+    posts = con.execute("""SELECT p.id, p.url, p.external_id, p.posted_at,
+                                  (SELECT MAX(fetched_at) FROM stats s WHERE s.post_id = p.id
+                                   AND s.origin = 'tiktok-api') AS last_fetch
+                           FROM posts p WHERE p.platform = 'tiktok' AND p.posted_at >= ?""",
+                        (_iso(now - timedelta(days=days)),)).fetchall()
+    due: dict[str, int] = {}
+    for p in posts:
+        vid = p["external_id"] or tiktok_api.video_id(p["url"])
+        if not vid:
+            res["unmatched"] += 1
+            continue
+        if not p["external_id"]:
+            con.execute("UPDATE posts SET external_id=? WHERE id=?", (vid, p["id"]))
+            res["matched"] += 1
+        if _due(p["posted_at"], p["last_fetch"], now):
+            due[vid] = p["id"]
+    con.commit()
+    if not due:
+        return res
+    try:
+        token = tiktok_api.access_token(t["client_key"], t["client_secret"], tok_file)
+        found = tiktok_api.query(token, list(due))
+    except (net.HttpError, RuntimeError) as e:
+        print(f"  TikTok stats failed: {str(e)[:200]}")
+        res["failed"] += len(due)
+        return res
+    for vid, post_id in due.items():
+        s = found.get(vid)
+        if s is None:  # not a video of the connected account (or deleted)
+            res["failed"] += 1
+            continue
+        tracker.add_stats(con, post_id, s["views"], s["likes"], s["comments"], s["shares"],
+                          origin="tiktok-api", fetched_at=_iso(now))
+        res["updated"] += 1
+    return res

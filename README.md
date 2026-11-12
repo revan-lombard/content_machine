@@ -133,8 +133,16 @@ review.bat      # updates YouTube stats, then opens http://localhost:8765
   - `fb.watch/...` short links don't contain the video id, so log the full link instead.
   - Needs the `read_insights` permission. If you connected Meta before this was added, run
     `python -m clipfarm connect meta --token ...` once more with it ticked.
-- **TikTok, X:** typed in on the Performance tab for now. Instagram or Facebook links from
-  an account other than the connected one also land there.
+- **TikTok: automatic** for posts you log with a full `tiktok.com/@you/video/...` link.
+  Posting to TikTok stays manual, but its numbers don't need typing.
+  - One-time setup: follow the `tiktok` steps in `secrets.example.yaml` (a free developer
+    app with Login Kit and the `video.list` scope), then run `python -m clipfarm connect tiktok`.
+  - TikTok only returns stats for the account that signed in, so connect the account you post with.
+  - `vm.tiktok.com/...` short links don't contain the video id, so log the full link instead.
+  - While the app is in TikTok's **Sandbox**, add your posting account as a target user. If
+    TikTok asks for an app review before `video.list` works for you, submit it from the same page.
+- **X:** typed in on the Performance tab. So are links from accounts other than the connected
+  ones, on any platform.
 - **Data storage:** everything is kept in `data/tracker.db` on your PC. Back it up now and
   then, because it holds all your results.
 
@@ -257,8 +265,8 @@ Or run `python -m clipfarm publish` hourly from Task Scheduler. Use
 - **Failures:** a post that fails is retried on later runs, up to 3 times. Errors show on
   the review page and the Performance tab.
 - **Tracking:** every post is logged with its link automatically, so its views are tracked
-  with no typing. YouTube, Instagram and Facebook view counts are fetched automatically
-  (hourly while `publish.bat` runs).
+  with no typing. View counts for YouTube, Instagram and Facebook (and TikTok, from the links
+  you log) are fetched automatically, hourly while `publish.bat` runs.
 
 ## Clipping your own gameplay
 
@@ -352,7 +360,7 @@ python -m clipfarm facecam NAME               frame + grid to find the face cam 
 python -m clipfarm review                     review/post page + performance dashboard
 python -m clipfarm stats                      fetch YouTube stats, print the format leaderboard
 python -m clipfarm post CLIP_ID PLATFORM URL  log a post without the web page
-python -m clipfarm connect youtube|meta       one-time sign-in for auto-posting
+python -m clipfarm connect youtube|meta|tiktok   one-time sign-in (posting / stats)
 python -m clipfarm approve CLIP_ID... [--reject]
 python -m clipfarm publish [--dry-run] [--watch] [--platform youtube]
 python -m clipfarm react find WORDS... --sources NAME...   draft a multi-streamer plan
